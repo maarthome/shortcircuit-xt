@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import tkinter
+import tkinter.font
 from urllib.parse import unquote, urlparse
 
 from zyngui import zynthian_gui_config
@@ -158,39 +159,53 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
             logging.warning(f"Shortcircuit XT widget: can't refresh knob titles => {e}")
         logging.info(f"Shortcircuit XT: renamed {len(changed)} macro knobs for preset '{self.preset_label}'")
 
+    @staticmethod
+    def fit_text(text, font, max_w):
+        """Shorten text with an ellipsis so it fits max_w pixels on one line."""
+        try:
+            f = tkinter.font.Font(family=font[0], size=font[1])
+            measure = f.measure
+        except Exception:
+            measure = lambda t: len(t) * font[1] * 0.75  # rough fallback
+        if measure(text) <= max_w:
+            return text
+        while len(text) > 1 and measure(text + "\u2026") > max_w:
+            text = text[:-1]
+        return text.rstrip() + "\u2026"
+
     def show_names(self):
-        """List all macros of the parts in use: 2 columns of 8 per part.
-        Named macros in normal colour, default names dimmed."""
+        """List the named macros of the preset (default names are not shown)."""
         c = self.widget_canvas
         c.delete("macros")
         if self.width < 10 or self.height < 10:
             return
-        title = f"Macros - {self.preset_label}" if self.preset_label else "Macros"
-        parts = self.parts or [(0, "")]
-        half = MACROS_PER_PART // 2
-        # rows: title + for each part (header if several parts) + 8 macro rows
-        rows = 1 + len(parts) * (half + (1 if len(parts) > 1 else 0))
-        row_h = self.height / (rows + 0.5)
-        fs = max(7, min(int(row_h * 0.62), self.height // 14))
+        several = len({p for (p, m) in self.names}) > 1
+        items = [(f"P{p + 1}.{m + 1}" if several else f"{m + 1}", nm)
+                 for (p, m), nm in sorted(self.names.items())]
+        cols = 1 if len(items) <= 8 else 2
+        per_col = max(1, -(-len(items) // cols))
+        row_h = self.height / (min(per_col, 8) + 1.6)
+        fs = max(7, min(int(row_h * 0.55), self.height // 12))
         font = (zynthian_gui_config.font_family, fs)
         x0 = int(0.04 * self.width)
-        col_w = (self.width - 2 * x0) / 2
-        y = row_h * 0.25
-        c.create_text(x0, y, anchor="nw", text=title, font=(zynthian_gui_config.font_family, fs, "bold"),
+        col_w = (self.width - 2 * x0) / cols
+        num_w = fs * (3.2 if several else 1.8)
+        y0 = row_h * 0.3
+        c.create_text(x0, y0, anchor="nw", text="Macros", font=(zynthian_gui_config.font_family, fs, "bold"),
                       fill=zynthian_gui_config.color_tx_off, tags="macros")
-        y += row_h
-        for pi, pname in parts:
-            if len(parts) > 1:
-                c.create_text(x0, y, anchor="nw", text=f"Part {pi + 1}" + (f" - {pname}" if pname else ""),
-                              font=font, fill=zynthian_gui_config.color_tx_off, tags="macros")
-                y += row_h
-            for k in range(MACROS_PER_PART):
-                col, row = divmod(k, half)
-                nm = self.names.get((pi, k))
-                text = f"{k + 1:>2}  {nm if nm else f'Macro {k + 1}'}"
-                c.create_text(x0 + col * col_w, y + row * row_h, anchor="nw", text=text, font=font,
-                              width=int(col_w - fs), tags="macros",
-                              fill=zynthian_gui_config.color_tx if nm else zynthian_gui_config.color_tx_off)
-            y += half * row_h
+        y0 += row_h * 1.2
+        if not items:
+            c.create_text(x0, y0, anchor="nw", text="(no named macros)", font=font,
+                          fill=zynthian_gui_config.color_tx_off, tags="macros")
+            return
+        for k, (num, nm) in enumerate(items):
+            col, row = divmod(k, per_col)
+            x = x0 + col * col_w
+            y = y0 + row * row_h
+            c.create_text(x, y, anchor="nw", text=num, font=font,
+                          fill=zynthian_gui_config.color_tx_off, tags="macros")
+            c.create_text(x + num_w, y, anchor="nw", font=font, tags="macros",
+                          text=self.fit_text(nm, font, col_w - num_w - fs * 0.5),
+                          fill=zynthian_gui_config.color_tx)
 
 # ------------------------------------------------------------------------------
