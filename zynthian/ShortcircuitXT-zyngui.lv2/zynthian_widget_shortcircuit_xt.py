@@ -134,6 +134,8 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
         self.my_screens = None   # page dict this widget gave the processor
         self.shown_key = None    # knobs + size last drawn
         self.preset_label = ""
+        self.pages_pending = False
+        self.pending_first = False
         self.widget_canvas = tkinter.Canvas(self, highlightthickness=0, relief='flat',
                                             bg=zynthian_gui_config.color_bg)
         self.widget_canvas.grid(sticky='news')
@@ -182,7 +184,21 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
             self.names = info['names']
             self.preset_label = getattr(self.processor, "preset_name", "") or ""
         self.rename_knobs()
-        self.set_pages(go_to_first=preset_changed)
+        # Zynthian may be in the middle of building the knob page (this runs
+        # from show_widget); change the pages only when it has finished
+        self.pending_first = self.pending_first or preset_changed
+        if not self.pages_pending:
+            self.pages_pending = True
+            try:
+                self.after_idle(self.apply_pages)
+            except Exception:
+                self.apply_pages()
+
+    def apply_pages(self):
+        self.pages_pending = False
+        go_to_first, self.pending_first = self.pending_first, False
+        if self.processor:
+            self.set_pages(go_to_first)
 
     def rename_knobs(self):
         for symbol, zctrl in self.processor.controllers_dict.items():
@@ -207,10 +223,25 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
             self.my_screens = new_dict
             if go_to_first or not (0 <= proc.current_screen_index < len(new_dict)):
                 proc.current_screen_index = 0
-            zynsigman.send(zynsigman.S_PROCESSOR, zynsigman.SS_PROCESSOR_CTRL_SCREENS, proc=proc)
+            self.redraw_control_screen(proc)
             logging.info(f"Shortcircuit XT: {len(new_dict)} control pages for preset '{self.preset_label}'")
         except Exception as e:
             logging.warning(f"Shortcircuit XT widget: can't set control pages => {e}")
+
+    def redraw_control_screen(self, proc):
+        """Rebuild the page list and the knobs on screen for the new pages."""
+        ctl = self.zyngui_control
+        try:
+            if getattr(ctl, "shown", False) and ctl.zyngui.get_current_processor() is proc:
+                ctl.update_list()            # page list with the new pages
+                ctl.set_controller_screen()  # knobs of the current page
+                self.shown_key = None
+                self.show_labels()
+                return
+        except Exception as e:
+            logging.warning(f"Shortcircuit XT widget: can't redraw control screen => {e}")
+        # not on screen (or failed): let Zynthian refresh when it shows it
+        zynsigman.send(zynsigman.S_PROCESSOR, zynsigman.SS_PROCESSOR_CTRL_SCREENS, proc=proc)
 
     @staticmethod
     def fit_text(text, font, max_w):
