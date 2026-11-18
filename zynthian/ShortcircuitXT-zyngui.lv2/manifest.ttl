@@ -1,0 +1,13 @@
+# Zynthian widget extension bundle for Shortcircuit XT (ShortcircuitXT.lv2,
+# maarthome/shortcircuit-xt my_own branch). It adds a zyngui:widget UI to the
+# existing plugin; it does not declare the plugin.
+# Install: copy this folder to /usr/local/lib/lv2/ on the Zynthian.
+@prefix ui:     <http://lv2plug.in/ns/extensions/ui#> .
+@prefix zyngui: <http://zynthian.org/ns/lv2/zyngui#> .
+
+<https://github.com/maarthome/shortcircuit-xt#lv2> ui:ui <https://github.com/maarthome/shortcircuit-xt#zyngui> .
+
+<https://github.com/maarthome/shortcircuit-xt#zyngui>
+	a zyngui:widget ;
+	ui:binary <zynthian_widget_shortcircuit_xt.py> ;
+	zyngui:apiVersion 1 .

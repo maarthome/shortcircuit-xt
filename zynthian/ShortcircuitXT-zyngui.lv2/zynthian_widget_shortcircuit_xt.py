@@ -3,8 +3,8 @@
 # Zynthian user widget for the Shortcircuit XT LV2 plugin
 # (maarthome/shortcircuit-xt, my_own branch)
 #
-# Install as:
-#   /zynthian/zynthian-ui/zyngui/widgets_user/zynthian_widget_shortcircuit_xt.py
+# Install: copy the ShortcircuitXT-zyngui.lv2 folder (this file + manifest.ttl)
+#   to /usr/local/lib/lv2/ on the Zynthian (zynthian-ui "tomita" widget bundles).
 #
 # Zynthian reads LV2 knob names only once, from the plugin's .ttl. This widget
 # watches which preset is loaded and renames the macro knobs (p0..p255) to the
