@@ -40,31 +40,38 @@ def preset_path(preset_info):
     return unquote(urlparse(url).path)
 
 
-_names_cache = {}  # (path, mtime) -> names
+_info_cache = {}  # (path, mtime) -> preset info
 
 
-def read_macro_names(ttl_path):
-    """{(part, macro): name} from a preset .ttl holding a Shortcircuit XT state."""
+def read_preset_info(ttl_path):
+    """{'names': {(part, macro): name}, 'parts': [(part, part name), ...]} for a
+    preset .ttl holding a Shortcircuit XT state; 'parts' are the parts in use."""
     key = (ttl_path, os.path.getmtime(ttl_path))
-    if key not in _names_cache:
-        _names_cache[key] = _read_macro_names(ttl_path)
-    return _names_cache[key]
+    if key not in _info_cache:
+        _info_cache[key] = _read_preset_info(ttl_path)
+    return _info_cache[key]
 
 
-def _read_macro_names(ttl_path):
+def _read_preset_info(ttl_path):
     with open(ttl_path, encoding="utf-8") as f:
         m = STATE_RE.search(f.read())
     if not m:
-        return {}
+        return {'names': {}, 'parts': []}
     raw = base64.b64decode("".join(m.group(1).split()))
     state = json.loads(raw.rstrip(b"\0").decode("utf-8"))
     names = {}
-    for part in state.get("patch", {}).get("parts", []):
+    parts = []
+    for pi, part in enumerate(state.get("patch", {}).get("parts", [])):
+        has_names = False
         for mac in part.get("macros", []):
             nm = (mac.get("nm") or "").strip()
             if nm:
-                names[(int(mac.get("p", 0)), int(mac.get("i", 0)))] = nm
-    return names
+                names[(int(mac.get("p", pi)), int(mac.get("i", 0)))] = nm
+                has_names = True
+        if part.get("groups") or has_names:
+            pname = (part.get("names", {}).get("nm") or "").strip()
+            parts.append((pi, pname))
+    return {'names': names, 'parts': parts}
 
 
 def knob_name(symbol, names):
@@ -89,23 +96,14 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
         self.widget_canvas = tkinter.Canvas(self, highlightthickness=0, relief='flat',
                                             bg=zynthian_gui_config.color_bg)
         self.widget_canvas.grid(sticky='news')
-        self.title_text = self.widget_canvas.create_text(
-            0, 0, anchor="nw", fill=zynthian_gui_config.color_tx_off, text="Macros")
-        self.list_text = self.widget_canvas.create_text(
-            0, 0, anchor="nw", fill=zynthian_gui_config.color_tx, text="")
+        self.parts = []  # [(part index, part name)] shown in the list
 
     def on_size(self, event):
         if event.width == self.width and event.height == self.height:
             return
         super().on_size(event)
-        x0 = int(0.05 * self.width)
-        fs = max(8, self.height // 16)
-        self.widget_canvas.coords(self.title_text, x0, int(0.05 * self.height))
-        self.widget_canvas.itemconfig(self.title_text, font=(zynthian_gui_config.font_family, fs))
-        self.widget_canvas.coords(self.list_text, x0, int(0.05 * self.height) + 2 * fs)
-        self.widget_canvas.itemconfig(self.list_text, font=(zynthian_gui_config.font_family, int(fs * 0.8)),
-                                      width=int(0.9 * self.width))
         self.widget_canvas.grid(row=0, column=0, sticky='news')
+        self.show_names()
 
     def set_processor(self, processor):
         if processor is not self.processor:
@@ -129,13 +127,14 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
             return
         self.applied_key = key
 
-        names = {}
+        info = {'names': {}, 'parts': []}
         if path:
             try:
-                names = read_macro_names(path)
+                info = read_preset_info(path)
             except Exception as e:
                 logging.warning(f"Shortcircuit XT widget: can't read macro names from {path} => {e}")
-        self.names = names
+        self.names = info['names']
+        self.parts = info['parts'] or [(0, "")]
         self.preset_label = getattr(self.processor, "preset_name", "") or ""
         self.rename_knobs()
         self.show_names()
@@ -160,9 +159,38 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
         logging.info(f"Shortcircuit XT: renamed {len(changed)} macro knobs for preset '{self.preset_label}'")
 
     def show_names(self):
+        """List all macros of the parts in use: 2 columns of 8 per part.
+        Named macros in normal colour, default names dimmed."""
+        c = self.widget_canvas
+        c.delete("macros")
+        if self.width < 10 or self.height < 10:
+            return
         title = f"Macros - {self.preset_label}" if self.preset_label else "Macros"
-        lines = [f"P{p + 1} M{m + 1}: {nm}" for (p, m), nm in sorted(self.names.items())]
-        self.widget_canvas.itemconfig(self.title_text, text=title)
-        self.widget_canvas.itemconfig(self.list_text, text="\n".join(lines) if lines else "(no named macros)")
+        parts = self.parts or [(0, "")]
+        half = MACROS_PER_PART // 2
+        # rows: title + for each part (header if several parts) + 8 macro rows
+        rows = 1 + len(parts) * (half + (1 if len(parts) > 1 else 0))
+        row_h = self.height / (rows + 0.5)
+        fs = max(7, min(int(row_h * 0.62), self.height // 14))
+        font = (zynthian_gui_config.font_family, fs)
+        x0 = int(0.04 * self.width)
+        col_w = (self.width - 2 * x0) / 2
+        y = row_h * 0.25
+        c.create_text(x0, y, anchor="nw", text=title, font=(zynthian_gui_config.font_family, fs, "bold"),
+                      fill=zynthian_gui_config.color_tx_off, tags="macros")
+        y += row_h
+        for pi, pname in parts:
+            if len(parts) > 1:
+                c.create_text(x0, y, anchor="nw", text=f"Part {pi + 1}" + (f" - {pname}" if pname else ""),
+                              font=font, fill=zynthian_gui_config.color_tx_off, tags="macros")
+                y += row_h
+            for k in range(MACROS_PER_PART):
+                col, row = divmod(k, half)
+                nm = self.names.get((pi, k))
+                text = f"{k + 1:>2}  {nm if nm else f'Macro {k + 1}'}"
+                c.create_text(x0 + col * col_w, y + row * row_h, anchor="nw", text=text, font=font,
+                              width=int(col_w - fs), tags="macros",
+                              fill=zynthian_gui_config.color_tx if nm else zynthian_gui_config.color_tx_off)
+            y += half * row_h
 
 # ------------------------------------------------------------------------------
