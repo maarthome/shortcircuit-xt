@@ -24,6 +24,18 @@ The `ShortcircuitXT.lv2` bundle contains:
 - Extra outputs (Out 1..20) are not exposed; route everything to the main bus.
 - Knob moves made inside the Shortcircuit XT window are not sent back to the LV2 control ports.
 
+## Your own macro names on the LV2 knobs
+
+The knob names live in the .ttl file, so they are fixed until you regenerate it:
+
+1. Name the macros in the Shortcircuit XT editor (right-click a macro knob).
+2. Close the editor window. The plugin then writes its setup to
+   `~/.local/share/shortcircuit-xt-lv2/last-state.scxtstate` (also on every host state save).
+3. Run `generate_ttl.sh` from the bundle (on the Zynthian: `/usr/local/lib/lv2/ShortcircuitXT.lv2/generate_ttl.sh`)
+   or from the repository root on the Pi, and restart the host.
+
+`FULL_NAMES=1` keeps names like "P1 M1 - Cutoff"; `MAX_PARAMS=n` changes the number of knobs.
+
 ## Build
 
 On the Pi 5, from the repository root:

@@ -30,6 +30,8 @@
 
 #include <X11/Xlib.h>
 
+#include <sys/stat.h>
+
 #include <cmath>
 #include <cstdlib>
 #include <memory>
@@ -460,18 +462,67 @@ struct Plugin
     }
 
     // --- state ------------------------------------------------------------
-    LV2_State_Status save(LV2_State_Store_Function store, LV2_State_Handle h)
+    bool saveBlob(std::vector<uint8_t> &blob)
     {
         if (!state)
-            return LV2_STATE_ERR_NO_FEATURE;
-        std::vector<uint8_t> blob;
+            return false;
+        blob.clear();
         clap_ostream_t os{&blob, [](const clap_ostream_t *s, const void *buf, uint64_t sz) {
                               auto *v = (std::vector<uint8_t> *)s->ctx;
                               v->insert(v->end(), (const uint8_t *)buf, (const uint8_t *)buf + sz);
                               return (int64_t)sz;
                           }};
-        if (!state->save(clap, &os))
+        return state->save(clap, &os);
+    }
+
+    // Also keep the latest state in a file, so generate_ttl.sh can read the
+    // macro names from it. Default: ~/.local/share/shortcircuit-xt-lv2/last-state.scxtstate
+    static std::string lastStatePath()
+    {
+        if (const char *p = getenv("SCXT_LV2_STATE_FILE"))
+            return p;
+        const char *home = getenv("HOME");
+        std::string dir = std::string(home ? home : "/tmp") + "/.local";
+        mkdir(dir.c_str(), 0755);
+        dir += "/share";
+        mkdir(dir.c_str(), 0755);
+        dir += "/shortcircuit-xt-lv2";
+        mkdir(dir.c_str(), 0755);
+        return dir + "/last-state.scxtstate";
+    }
+
+    void writeLastState(const std::vector<uint8_t> &blob)
+    {
+        if (blob.empty())
+            return;
+        auto path = lastStatePath();
+        auto tmp = path + ".tmp";
+        if (FILE *f = fopen(tmp.c_str(), "wb"))
+        {
+            bool ok = fwrite(blob.data(), 1, blob.size(), f) == blob.size();
+            ok = (fclose(f) == 0) && ok;
+            if (ok)
+                rename(tmp.c_str(), path.c_str());
+            else
+                remove(tmp.c_str());
+        }
+    }
+
+    void dumpLastState()
+    {
+        std::vector<uint8_t> blob;
+        if (saveBlob(blob))
+            writeLastState(blob);
+    }
+
+    LV2_State_Status save(LV2_State_Store_Function store, LV2_State_Handle h)
+    {
+        if (!state)
+            return LV2_STATE_ERR_NO_FEATURE;
+        std::vector<uint8_t> blob;
+        if (!saveBlob(blob))
             return LV2_STATE_ERR_UNKNOWN;
+        writeLastState(blob);
         return store(h, u.stateKey, blob.data(), blob.size(), u.atomChunk,
                      LV2_STATE_IS_POD | LV2_STATE_IS_PORTABLE);
     }
@@ -579,6 +630,7 @@ struct UI
             plugin->host.onGuiClosed = nullptr;
             if (created && plugin->gui)
             {
+                plugin->dumpLastState(); // macro names edited in the window
                 plugin->gui->hide(plugin->clap);
                 plugin->gui->destroy(plugin->clap);
             }

@@ -5,7 +5,14 @@
  * Part of the maarthome/shortcircuit-xt "my_own" branch LV2 wrapper.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
- * Usage: clap2lv2-ttl <file.clap> <bundle-dir> <binary.so> [max-params]
+ * Usage: clap2lv2-ttl [--state FILE] [--dump-state FILE]
+ *                     <file.clap> <bundle-dir> <binary.so> [max-params]
+ *
+ *   --state FILE       load this plugin state first, so the .ttl gets the
+ *                      knob names from it (e.g. your own macro names)
+ *   --dump-state FILE  write the plugin's (default or loaded) state to FILE
+ *   --short-names      use only the part after " - " in names that have one
+ *                      ("P1 M1 - Cutoff" becomes "Cutoff")
  *
  * The plugin is loaded once to read its name and parameter list; port order
  * must match clap2lv2.cpp (events in, out L, out R, then one control per param).
@@ -18,6 +25,7 @@
 #include <map>
 #include <sstream>
 #include <unistd.h>
+#include <vector>
 
 #ifndef CLAP2LV2_URI
 #define CLAP2LV2_URI "https://github.com/maarthome/shortcircuit-xt#lv2"
@@ -50,15 +58,52 @@ static std::string symbolOf(const std::string &s)
     return r;
 }
 
+static std::string displayName(const std::string &name, bool shortNames)
+{
+    if (!shortNames)
+        return name;
+    auto pos = name.find(" - ");
+    if (pos == std::string::npos || pos + 3 >= name.size())
+        return name;
+    return name.substr(pos + 3);
+}
+
+static bool readFile(const std::string &path, std::vector<uint8_t> &out)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        return false;
+    out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    return !out.empty();
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 4)
+    std::string statePath, dumpPath;
+    bool shortNames = false;
+    std::vector<std::string> pos;
+    for (int i = 1; i < argc; ++i)
     {
-        fprintf(stderr, "usage: %s <file.clap> <bundle-dir> <binary.so> [max-params]\n", argv[0]);
+        std::string a = argv[i];
+        if (a == "--state" && i + 1 < argc)
+            statePath = argv[++i];
+        else if (a == "--dump-state" && i + 1 < argc)
+            dumpPath = argv[++i];
+        else if (a == "--short-names")
+            shortNames = true;
+        else
+            pos.push_back(a);
+    }
+    if (pos.size() < 3)
+    {
+        fprintf(stderr,
+                "usage: %s [--state FILE] [--dump-state FILE] [--short-names] <file.clap> <bundle-dir> "
+                "<binary.so> [max-params]\n",
+                argv[0]);
         return 1;
     }
-    std::string clapPath = argv[1], bundle = argv[2], binary = argv[3];
-    long maxParams = argc > 4 ? atol(argv[4]) : -1;
+    std::string clapPath = pos[0], bundle = pos[1], binary = pos[2];
+    long maxParams = pos.size() > 3 ? atol(pos[3].c_str()) : -1;
     if (!bundle.empty() && bundle.back() != '/')
         bundle += '/';
 
@@ -76,6 +121,66 @@ int main(int argc, char **argv)
         return 3;
     }
     host.attach(plug);
+
+    auto *stateExt = (const clap_plugin_state_t *)plug->get_extension(plug, CLAP_EXT_STATE);
+    auto pump = [&](int ms) {
+        // let the plugin finish asynchronous work (Shortcircuit XT loads
+        // state on its own thread and then asks for a main-thread callback)
+        for (int t = 0; t < ms; t += 20)
+        {
+            host.idle();
+            usleep(20000);
+        }
+    };
+
+    if (!statePath.empty())
+    {
+        std::vector<uint8_t> blob;
+        if (!stateExt || !readFile(statePath, blob))
+        {
+            fprintf(stderr, "could not read state file %s\n", statePath.c_str());
+            return 4;
+        }
+        struct Reader
+        {
+            const std::vector<uint8_t> *d;
+            size_t pos;
+        } rd{&blob, 0};
+        clap_istream_t is{&rd, [](const clap_istream_t *s, void *buf, uint64_t sz) -> int64_t {
+                              auto *r = (Reader *)s->ctx;
+                              uint64_t left = r->d->size() - r->pos;
+                              if (sz > left)
+                                  sz = left;
+                              memcpy(buf, r->d->data() + r->pos, sz);
+                              r->pos += sz;
+                              return (int64_t)sz;
+                          }};
+        if (!stateExt->load(plug, &is))
+        {
+            fprintf(stderr, "plugin refused state file %s\n", statePath.c_str());
+            return 5;
+        }
+        pump(2000);
+        printf("loaded state %s\n", statePath.c_str());
+    }
+    else
+        pump(200);
+
+    if (!dumpPath.empty() && stateExt)
+    {
+        std::vector<uint8_t> blob;
+        clap_ostream_t os{&blob, [](const clap_ostream_t *s, const void *buf, uint64_t sz) {
+                              auto *v = (std::vector<uint8_t> *)s->ctx;
+                              v->insert(v->end(), (const uint8_t *)buf, (const uint8_t *)buf + sz);
+                              return (int64_t)sz;
+                          }};
+        if (stateExt->save(plug, &os))
+        {
+            std::ofstream(dumpPath, std::ios::binary)
+                .write((const char *)blob.data(), (std::streamsize)blob.size());
+            printf("wrote state to %s (%zu bytes)\n", dumpPath.c_str(), blob.size());
+        }
+    }
 
     auto *params = (const clap_plugin_params_t *)plug->get_extension(plug, CLAP_EXT_PARAMS);
     auto *gui = (const clap_plugin_gui_t *)plug->get_extension(plug, CLAP_EXT_GUI);
@@ -142,7 +247,7 @@ int main(int argc, char **argv)
               << "        a lv2:InputPort , lv2:ControlPort ;\n"
               << "        lv2:index " << (3 + i) << " ;\n"
               << "        lv2:symbol \"p" << i << "\" ;\n"
-              << "        lv2:name \"" << esc(info.name) << "\" ;\n"
+              << "        lv2:name \"" << esc(displayName(info.name, shortNames)) << "\" ;\n"
               << "        lv2:default " << info.default_value << " ;\n"
               << "        lv2:minimum " << info.min_value << " ;\n"
               << "        lv2:maximum " << info.max_value;
