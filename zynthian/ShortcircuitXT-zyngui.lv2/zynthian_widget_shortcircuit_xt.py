@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import time
 import tkinter
 import tkinter.font
 from urllib.parse import unquote, urlparse
@@ -136,6 +137,7 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
         self.preset_label = ""
         self.pages_pending = False
         self.pending_first = False
+        self.last_fix = 0.0
         self.widget_canvas = tkinter.Canvas(self, highlightthickness=0, relief='flat',
                                             bg=zynthian_gui_config.color_bg)
         self.widget_canvas.grid(sticky='news')
@@ -158,7 +160,40 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
 
     def refresh_gui(self):
         self.apply_preset()
+        self.check_screen()
         self.show_labels()
+
+    def check_screen(self):
+        """Redraw if the knobs on screen are not those of the current page
+        (e.g. Zynthian showed a page of the previous preset's layout)."""
+        if self.pages_pending or not self.processor or self.my_screens is None:
+            return
+        proc = self.processor
+        try:
+            pages = list(proc.ctrl_screens_dict.values())
+            idx = proc.current_screen_index
+            if not (0 <= idx < len(pages)):
+                return
+            want = [z.symbol for z in pages[idx]]
+            shown = [g.zctrl.symbol for g in self.zyngui_control.zgui_controllers if g.zctrl is not None]
+        except Exception:
+            return
+        if shown and shown != want:
+            now = time.monotonic()
+            if now - self.last_fix < 1.0:
+                return  # don't fight Zynthian more than once a second
+            self.last_fix = now
+            logging.info(f"Shortcircuit XT: knobs {shown} don't match page {want} => redraw")
+            self.pages_pending = True
+            try:
+                self.after_idle(self.fix_screen)
+            except Exception:
+                self.fix_screen()
+
+    def fix_screen(self):
+        self.pages_pending = False
+        if self.processor:
+            self.redraw_control_screen(self.processor)
 
     # Called on every GUI refresh; only does work when something changed
     def apply_preset(self):
@@ -228,11 +263,18 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
         except Exception as e:
             logging.warning(f"Shortcircuit XT widget: can't set control pages => {e}")
 
+    @staticmethod
+    def current_processor(ctl):
+        try:
+            return ctl.zyngui.get_current_processor()
+        except Exception:
+            return zynthian_gui_config.zyngui.get_current_processor()
+
     def redraw_control_screen(self, proc):
         """Rebuild the page list and the knobs on screen for the new pages."""
         ctl = self.zyngui_control
         try:
-            if getattr(ctl, "shown", False) and ctl.zyngui.get_current_processor() is proc:
+            if getattr(ctl, "shown", False) and self.current_processor(ctl) is proc:
                 ctl.update_list()            # page list with the new pages
                 ctl.set_controller_screen()  # knobs of the current page
                 self.shown_key = None
