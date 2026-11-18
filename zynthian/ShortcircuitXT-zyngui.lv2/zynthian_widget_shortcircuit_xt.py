@@ -23,6 +23,7 @@ from urllib.parse import unquote, urlparse
 
 from zyngui import zynthian_gui_config
 from zyngui import zynthian_widget_base
+from zyngine.zynthian_signal_manager import zynsigman
 
 STATE_KEY = "https://github.com/maarthome/shortcircuit-xt#lv2-clapstate"
 STATE_RE = re.compile(r"<" + re.escape(STATE_KEY) + r'>\s*"""(.*?)"""', re.S)
@@ -84,6 +85,44 @@ def knob_name(symbol, names):
     return names.get((part, mac)) or f"P{part + 1} Macro {mac + 1}"
 
 
+def screen_layout(orig_screens, names):
+    """Control pages for a preset: [[page name, [symbols]], ...]
+
+    orig_screens: the engine's pages ([[name, [symbols]], ...]).
+    Page 1 = the non-macro controls of the first page (MIDI Controllers, e.g.
+    modulation wheel) + the first named macros up to 4 knobs, then the other
+    named macros 4 per page. Unnamed macros ("Macro xx") are left out; other
+    non-macro pages are kept after the macro pages.
+    Without any named macro the original pages are returned unchanged."""
+    if not names:
+        return [[n, list(syms)] for n, syms in orig_screens]
+    macro_syms = []
+    for (part, mac) in sorted(names):
+        macro_syms.append(f"p{part * MACROS_PER_PART + mac}")
+    first_extra = []
+    other_pages = []
+    for i, (n, syms) in enumerate(orig_screens):
+        plain = [s for s in syms if s and not MACRO_SYMBOL_RE.match(s)]
+        if len(plain) != len([s for s in syms if s]):
+            continue  # a macro page: replaced by the new macro pages
+        if i == 0 and len(plain) < 4:
+            first_extra = plain
+        else:
+            other_pages.append([n, plain])
+    pages = []
+    first = first_extra + macro_syms[:4 - len(first_extra)]
+    rest = macro_syms[4 - len(first_extra):]
+    pages.append(["Macros", first])
+    for k in range(0, len(rest), 4):
+        pages.append([f"Macros {k // 4 + 2}", rest[k:k + 4]])
+    return pages + other_pages
+
+
+def nice_name(zctrl):
+    name = zctrl.short_name or zctrl.name or zctrl.symbol
+    return name.title() if name.islower() else name
+
+
 class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base):
 
     MULTI_INSTANCE = True  # one widget per Shortcircuit XT processor
@@ -92,31 +131,35 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
         super().__init__(parent)
         self.applied_key = None  # (preset path, mtime) last applied
         self.names = {}
+        self.my_screens = None   # page dict this widget gave the processor
+        self.shown_key = None    # knobs + size last drawn
         self.preset_label = ""
-
         self.widget_canvas = tkinter.Canvas(self, highlightthickness=0, relief='flat',
                                             bg=zynthian_gui_config.color_bg)
         self.widget_canvas.grid(sticky='news')
-        self.parts = []  # [(part index, part name)] shown in the list
 
     def on_size(self, event):
         if event.width == self.width and event.height == self.height:
             return
         super().on_size(event)
         self.widget_canvas.grid(row=0, column=0, sticky='news')
-        self.show_names()
+        self.shown_key = None
+        self.show_labels()
 
     def set_processor(self, processor):
         if processor is not self.processor:
             self.applied_key = None
+            self.my_screens = None
         super().set_processor(processor)
-        self.apply_preset_names()
+        self.apply_preset()
+        self.show_labels()
 
     def refresh_gui(self):
-        self.apply_preset_names()
+        self.apply_preset()
+        self.show_labels()
 
-    # Called often (every GUI refresh); only does work when the preset changed
-    def apply_preset_names(self):
+    # Called on every GUI refresh; only does work when something changed
+    def apply_preset(self):
         if not self.processor:
             return
         path = preset_path(getattr(self.processor, "preset_info", None))
@@ -124,40 +167,50 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
             key = (path, os.path.getmtime(path)) if path else (None, None)
         except OSError:
             key = (path, None)
-        if key == self.applied_key:
+        preset_changed = key != self.applied_key
+        screens_reset = self.processor.ctrl_screens_dict is not self.my_screens
+        if not preset_changed and not screens_reset:
             return
-        self.applied_key = key
-
-        info = {'names': {}, 'parts': []}
-        if path:
-            try:
-                info = read_preset_info(path)
-            except Exception as e:
-                logging.warning(f"Shortcircuit XT widget: can't read macro names from {path} => {e}")
-        self.names = info['names']
-        self.parts = info['parts'] or [(0, "")]
-        self.preset_label = getattr(self.processor, "preset_name", "") or ""
+        if preset_changed:
+            self.applied_key = key
+            info = {'names': {}, 'parts': []}
+            if path:
+                try:
+                    info = read_preset_info(path)
+                except Exception as e:
+                    logging.warning(f"Shortcircuit XT widget: can't read macro names from {path} => {e}")
+            self.names = info['names']
+            self.preset_label = getattr(self.processor, "preset_name", "") or ""
         self.rename_knobs()
-        self.show_names()
+        self.set_pages(go_to_first=preset_changed)
 
     def rename_knobs(self):
-        changed = set()
         for symbol, zctrl in self.processor.controllers_dict.items():
             new = knob_name(symbol, self.names)
             if new and (zctrl.name != new or zctrl.short_name != new):
                 zctrl.name = zctrl.short_name = new
-                changed.add(symbol)
-        if not changed:
-            return
-        # redraw the titles of the knobs currently on screen
+
+    def set_pages(self, go_to_first):
+        proc = self.processor
         try:
-            for zgui_ctrl in self.zyngui_control.zgui_controllers:
-                if zgui_ctrl.zctrl is not None and zgui_ctrl.zctrl.symbol in changed:
-                    zgui_ctrl.title = zgui_ctrl.zctrl.short_name
-                    zgui_ctrl.set_title(zgui_ctrl.title)
+            orig = getattr(proc.engine, "_ctrl_screens", None) or \
+                [[n, [z.symbol for z in zl]] for n, zl in proc.ctrl_screens_dict.items()]
+            pages = screen_layout(orig, self.names)
+            new_dict = {}
+            for name, syms in pages:
+                zctrls = proc.build_ctrl_screen(syms)
+                if zctrls:
+                    new_dict[name] = zctrls
+            if not new_dict:
+                return
+            proc.ctrl_screens_dict = new_dict
+            self.my_screens = new_dict
+            if go_to_first or not (0 <= proc.current_screen_index < len(new_dict)):
+                proc.current_screen_index = 0
+            zynsigman.send(zynsigman.S_PROCESSOR, zynsigman.SS_PROCESSOR_CTRL_SCREENS, proc=proc)
+            logging.info(f"Shortcircuit XT: {len(new_dict)} control pages for preset '{self.preset_label}'")
         except Exception as e:
-            logging.warning(f"Shortcircuit XT widget: can't refresh knob titles => {e}")
-        logging.info(f"Shortcircuit XT: renamed {len(changed)} macro knobs for preset '{self.preset_label}'")
+            logging.warning(f"Shortcircuit XT widget: can't set control pages => {e}")
 
     @staticmethod
     def fit_text(text, font, max_w):
@@ -173,39 +226,43 @@ class zynthian_widget_shortcircuit_xt(zynthian_widget_base.zynthian_widget_base)
             text = text[:-1]
         return text.rstrip() + "\u2026"
 
-    def show_names(self):
-        """List the named macros of the preset (default names are not shown)."""
-        c = self.widget_canvas
-        c.delete("macros")
+    def knob_rows(self):
+        """[(name, y centre)] of the knobs on screen, y relative to this widget."""
+        rows = []
+        try:
+            gctrls = list(self.zyngui_control.zgui_controllers)
+        except Exception:
+            gctrls = []
+        n = max(1, len(gctrls))
+        for i, gc in enumerate(gctrls):
+            zctrl = getattr(gc, "zctrl", None)
+            if zctrl is None:
+                continue
+            try:
+                y = gc.winfo_rooty() - self.winfo_rooty() + gc.winfo_height() / 2
+                if not (0 <= y <= self.height):
+                    raise ValueError
+            except Exception:
+                y = self.height * (i + 0.5) / n  # knobs stacked in the right column
+            rows.append((nice_name(zctrl), y))
+        return rows
+
+    def show_labels(self):
+        """Name of every knob on screen, level with its block on the right."""
         if self.width < 10 or self.height < 10:
             return
-        several = len({p for (p, m) in self.names}) > 1
-        items = [(f"P{p + 1}.{m + 1}" if several else f"{m + 1}", nm)
-                 for (p, m), nm in sorted(self.names.items())]
-        cols = 1 if len(items) <= 8 else 2
-        per_col = max(1, -(-len(items) // cols))
-        row_h = self.height / (min(per_col, 8) + 1.6)
-        fs = max(7, min(int(row_h * 0.55), self.height // 12))
-        font = (zynthian_gui_config.font_family, fs)
-        x0 = int(0.04 * self.width)
-        col_w = (self.width - 2 * x0) / cols
-        num_w = fs * (3.2 if several else 1.8)
-        y0 = row_h * 0.3
-        c.create_text(x0, y0, anchor="nw", text="Macros", font=(zynthian_gui_config.font_family, fs, "bold"),
-                      fill=zynthian_gui_config.color_tx_off, tags="macros")
-        y0 += row_h * 1.2
-        if not items:
-            c.create_text(x0, y0, anchor="nw", text="(no named macros)", font=font,
-                          fill=zynthian_gui_config.color_tx_off, tags="macros")
+        rows = self.knob_rows()
+        key = (tuple(rows), self.width, self.height)
+        if key == self.shown_key:
             return
-        for k, (num, nm) in enumerate(items):
-            col, row = divmod(k, per_col)
-            x = x0 + col * col_w
-            y = y0 + row * row_h
-            c.create_text(x, y, anchor="nw", text=num, font=font,
-                          fill=zynthian_gui_config.color_tx_off, tags="macros")
-            c.create_text(x + num_w, y, anchor="nw", font=font, tags="macros",
-                          text=self.fit_text(nm, font, col_w - num_w - fs * 0.5),
-                          fill=zynthian_gui_config.color_tx)
+        self.shown_key = key
+        c = self.widget_canvas
+        c.delete("macros")
+        fs = max(8, int(self.height / 4 * 0.28))
+        font = (zynthian_gui_config.font_family, fs)
+        x0 = int(0.05 * self.width)
+        for name, y in rows:
+            c.create_text(x0, y, anchor="w", font=font, tags="macros", fill=zynthian_gui_config.color_tx,
+                          text=self.fit_text(name, font, self.width - 2 * x0))
 
 # ------------------------------------------------------------------------------
