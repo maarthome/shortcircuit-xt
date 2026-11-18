@@ -258,7 +258,7 @@ struct Plugin
             if (activated)
             {
                 if (processing)
-                    clap->stop_processing(clap);
+                    stopProcessing();
                 clap->deactivate(clap);
             }
             clap->destroy(clap);
@@ -287,6 +287,16 @@ struct Plugin
         }
     }
 
+    // CLAP wants stop_processing() on the audio thread; LV2 deactivates from
+    // a non-realtime thread after audio has stopped, so act as audio thread
+    void stopProcessing()
+    {
+        host.audioThread = std::this_thread::get_id();
+        clap->stop_processing(clap);
+        host.audioThread = std::thread::id();
+        processing = false;
+    }
+
     void activate()
     {
         if (!clap || activated)
@@ -304,7 +314,7 @@ struct Plugin
             return;
         if (processing)
         {
-            clap->stop_processing(clap);
+            stopProcessing();
             processing = false;
         }
         clap->deactivate(clap);
@@ -452,6 +462,7 @@ struct Plugin
         proc.out_events = &outEvents.list;
 
         clap->process(clap, &proc);
+        host.audioThread = std::thread::id(); // outside run() no thread is "audio"
         steadyTime += n;
 
         if (transport.flags & CLAP_TRANSPORT_IS_PLAYING)

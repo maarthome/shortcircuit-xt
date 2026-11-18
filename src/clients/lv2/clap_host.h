@@ -148,7 +148,11 @@ struct Host
             p, CLAP_EXT_POSIX_FD_SUPPORT);
     }
 
-    bool isMainThread() const { return std::this_thread::get_id() == mainThread; }
+    // LV2 has no single "main thread": hosts like jalv instantiate, restore
+    // state and run the UI on different non-realtime threads, but never at the
+    // same time. So every thread that is not the audio thread counts as the
+    // CLAP main thread (otherwise the plugin logs wrong-thread warnings).
+    bool isMainThread() const { return !isAudioThread(); }
     bool isAudioThread() const { return std::this_thread::get_id() == audioThread.load(); }
 
     // Run everything the plugin asked to happen on the main thread.
