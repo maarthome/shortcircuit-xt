@@ -95,7 +95,7 @@ cp "$CLAP_FILE" "$DIST/Shortcircuit XT.clap"
 cp "$CLAP_FILE" "$BUNDLE/scxt.clap"
 cp "$LV2_BUILD_DIR/scxt_lv2.so" "$BUNDLE/"
 # tools to rename the knobs later, also on the Zynthian (see generate_ttl.sh)
-cp "$LV2_BUILD_DIR/clap2lv2-ttl" "$ROOT/generate_ttl.sh" "$BUNDLE/"
+cp "$LV2_BUILD_DIR/clap2lv2-ttl" "$ROOT/generate_ttl.sh" "$ROOT/zynthian/scxt_macro_names.py" "$BUNDLE/"
 strip --strip-unneeded "$BUNDLE/scxt_lv2.so" "$BUNDLE/scxt.clap" "$BUNDLE/clap2lv2-ttl" || true
 if [ -n "${MAX_PARAMS:-}" ]; then
     "$LV2_BUILD_DIR/clap2lv2-ttl" "$BUNDLE/scxt.clap" "$BUNDLE" scxt_lv2.so "$MAX_PARAMS"
