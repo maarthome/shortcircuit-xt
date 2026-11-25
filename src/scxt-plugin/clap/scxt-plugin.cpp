@@ -233,6 +233,10 @@ bool SCXTPlugin::stateLoad(const clap_istream *istream) noexcept
     if (!scxt::messaging::hostStateLoad(*engine, std::string(buffer.data())))
         return false;
 
+    // the held macros already answer with the loaded values, so the host can rescan now
+    nextMainThreadAction |= RESCAN_PARAM_IVT;
+    _host.requestCallback();
+
     // queued behind the load, so the host rescans the loaded values
     auto bypass = engine->getMessageController()->threadingChecker.bypassChecksInScope();
     scxt::messaging::client::clientSendToSerialization(
@@ -310,6 +314,9 @@ bool SCXTPlugin::notePortsInfo(uint32_t index, bool isInput,
 
 clap_process_status SCXTPlugin::process(const clap_process *process) noexcept
 {
+    // a bounce right after a project load would otherwise render silence over the load
+    if (renderOffline)
+        engine->waitForStoppedEngineWork(std::chrono::minutes(2));
     return process_nonblock(process);
 }
 
