@@ -2,7 +2,7 @@
  * clap2lv2_ttl.cpp (scxt-lv2-ttl) - writes manifest.ttl and the plugin .ttl
  * of the Shortcircuit XT LV2 bundle.
  *
- * Part of the maarthome/shortcircuit-xt "my_own" branch LV2 wrapper.
+ * Part of the maarthome/shortcircuit-xt "My_Changes" branch LV2 wrapper.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
  * Usage: scxt-lv2-ttl [--state FILE] [--dump-state FILE] [--short-names]
@@ -381,7 +381,7 @@ int main(int argc, char **argv)
         << "    lv2:microVersion " << microV << " ;\n"
         << "    mod:brand \"Surge Synth Team\" ;\n"
         << "    mod:label \"Shortcircuit XT\" ;\n"
-        << "    rdfs:comment \"Shortcircuit XT sampler, built as LV2 from source (maarthome/shortcircuit-xt my_own)\" ;\n"
+        << "    rdfs:comment \"Shortcircuit XT sampler, built as LV2 from source (maarthome/shortcircuit-xt My_Changes)\" ;\n"
         << "    doap:maintainer [ foaf:name \"" << esc(vendor) << " (LV2 wrapper: maarthome)\" ] ;\n"
         << "    lv2:requiredFeature urid:map ;\n"
         << "    lv2:optionalFeature lv2:hardRTCapable , opts:options , bufsz:boundedBlockLength ;\n"

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ******************************************************************************
 # Zynthian user widget for the Shortcircuit XT LV2 plugin
-# (maarthome/shortcircuit-xt, my_own branch)
+# (maarthome/shortcircuit-xt, My_Changes branch)
 #
 # Install: copy the ShortcircuitXT-zyngui.lv2 folder (this file + manifest.ttl)
 #   to /usr/local/lib/lv2/ on the Zynthian (zynthian-ui "tomita" widget bundles).

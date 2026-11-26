@@ -1,4 +1,4 @@
-# Shortcircuit XT as LV2 (maarthome/shortcircuit-xt, my_own branch).
+# Shortcircuit XT as LV2 (maarthome/shortcircuit-xt, My_Changes branch).
 #
 # Part of the main Shortcircuit XT build, switched on with -DSCXT_BUILD_LV2=ON
 # (see src/clients/CMakeLists.txt). Shortcircuit XT's plugin code, the

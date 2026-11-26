@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # build_scxt.sh - build Shortcircuit XT as LV2 on a Raspberry Pi 5
-#                 (aarch64, Debian trixie) - maarthome/shortcircuit-xt, my_own branch
+#                 (aarch64, Debian trixie) - maarthome/shortcircuit-xt, My_Changes branch
 #
 # The LV2 is built from source as part of the Shortcircuit XT build
 # (-DSCXT_BUILD_LV2=ON): Shortcircuit's own plugin code is compiled into
@@ -282,7 +282,7 @@ Section: sound
 Priority: optional
 Depends: libc6, libstdc++6, libx11-6, libfreetype6, libfontconfig1
 Description: Shortcircuit XT sampler as LV2 plugin
- Built from source (maarthome/shortcircuit-xt, my_own branch) for MOD /
+ Built from source (maarthome/shortcircuit-xt, My_Changes branch) for MOD /
  pi-Stomp, Zynthian and other LV2 hosts.
 EOF
     cat > "$pkg/DEBIAN/postinst" <<'EOF'

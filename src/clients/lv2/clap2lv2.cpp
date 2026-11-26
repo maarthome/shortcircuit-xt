@@ -1,7 +1,7 @@
 /*
  * clap2lv2.cpp - the Shortcircuit XT LV2 plugin + LV2 X11 UI.
  *
- * Part of the maarthome/shortcircuit-xt "my_own" branch LV2 wrapper.
+ * Part of the maarthome/shortcircuit-xt "My_Changes" branch LV2 wrapper.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
  * Shortcircuit XT's own plugin code is linked into this binary and driven

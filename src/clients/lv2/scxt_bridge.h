@@ -1,7 +1,7 @@
 /*
  * scxt_bridge.h - lets the MOD panel edit Shortcircuit XT's engine.
  *
- * Part of the maarthome/shortcircuit-xt "my_own" branch.
+ * Part of the maarthome/shortcircuit-xt "My_Changes" branch.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
  * The panel sets LV2 patch parameters (scxt_params.h). run() hands them to

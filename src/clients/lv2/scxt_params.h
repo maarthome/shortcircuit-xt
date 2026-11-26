@@ -2,7 +2,7 @@
  * scxt_params.h - the LV2 patch parameters of the Shortcircuit XT LV2 that the
  * MOD panel uses (group selection, file browser and loading, group settings, EG1).
  *
- * Part of the maarthome/shortcircuit-xt "my_own" branch.
+ * Part of the maarthome/shortcircuit-xt "My_Changes" branch.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
  * Shared by the plugin (clap2lv2.cpp / scxt_bridge.cpp), the .ttl generator

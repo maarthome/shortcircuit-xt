@@ -1,4 +1,4 @@
-# my_own branch — Shortcircuit XT as LV2
+# My_Changes branch — Shortcircuit XT as LV2
 
 This branch of [maarthome/shortcircuit-xt](https://github.com/maarthome/shortcircuit-xt) adds an LV2
 build of [Shortcircuit XT](https://github.com/surge-synthesizer/shortcircuit-xt) for the
@@ -21,7 +21,7 @@ Raspberry Pi 5 (aarch64, Debian trixie), used on a pi-Stomp (MOD) and a Zynthian
 | `generate_ttl.sh` | rewrite the knob names from a saved state |
 | `zynthian/ShortcircuitXT-zyngui.lv2/` | Zynthian widget: knob names and pages follow the loaded preset |
 | `zynthian/scxt_macro_names.py` | older tool: fixed knob names from all Zynthian presets |
-| `MY_OWN.md` | this document |
+| `MY_CHANGES.md` | this document |
 
 ### How the LV2 is made
 
@@ -80,7 +80,7 @@ First time:
 
 ```bash
 cd ~/git
-git clone -b my_own https://github.com/maarthome/shortcircuit-xt.git
+git clone -b My_Changes https://github.com/maarthome/shortcircuit-xt.git
 cd shortcircuit-xt
 JOBS=4 ./build_scxt.sh
 ```
@@ -165,15 +165,15 @@ the loaded preset and puts only named macros on the control pages.
 
 ## Syncing with the original project
 
-The `main` branch of the fork mirrors upstream; `my_own` gets upstream merged in:
+The `main` branch of the fork mirrors upstream; `My_Changes` gets upstream merged in:
 
 ```bash
 cd ~/git/shortcircuit-xt
 git remote add upstream https://github.com/surge-synthesizer/shortcircuit-xt.git   # once
 git fetch upstream
-git checkout my_own
+git checkout My_Changes
 git merge upstream/main
-git push origin my_own
+git push origin My_Changes
 git push origin upstream/main:main
 ```
 

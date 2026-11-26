@@ -1,7 +1,7 @@
 /*
  * clap_host.h - minimal CLAP host used to run a CLAP plugin inside an LV2 shell.
  *
- * Part of the maarthome/shortcircuit-xt "my_own" branch LV2 wrapper.
+ * Part of the maarthome/shortcircuit-xt "My_Changes" branch LV2 wrapper.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
  * The host implements just enough of the CLAP host side for Shortcircuit XT:

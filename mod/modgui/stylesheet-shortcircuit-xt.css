@@ -1,4 +1,4 @@
-/* Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, my_own) */
+/* Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, My_Changes) */
 .scxt { width: 1100px; height: 760px; background: #1e2227; color: #d6dae0;
   font-family: "Inter", "Helvetica Neue", Arial, sans-serif; border-radius: 6px; position: relative; user-select: none; }
 .scxt .scx-root { position: absolute; inset: 0; padding: 8px 14px 10px; box-sizing: border-box; z-index: 25;

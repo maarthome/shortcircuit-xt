@@ -1,5 +1,5 @@
 function (event, funcs) {
-    // Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, my_own branch).
+    // Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, My_Changes branch).
     // Group settings, the file browser and EG1 are LV2 patch parameters (scxt_params.h in
     // the plugin source); the 16 macros are the plugin's control ports p0..p15.
     // The plugin lists folders itself (browse -> listing chunks) and remembers the last

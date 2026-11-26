@@ -1,4 +1,4 @@
-# Shortcircuit XT as LV2 (my_own branch)
+# Shortcircuit XT as LV2 (My_Changes branch)
 
 Shortcircuit XT is written as a CLAP plugin; upstream builds CLAP, VST3, AUv2 and a standalone app
 from it, but no LV2. This folder adds an LV2 build of the same source.
@@ -37,7 +37,7 @@ The `ShortcircuitXT.lv2` bundle contains:
 
 ## Build
 
-On the Pi 5, from the repository root (see `MY_OWN.md` for all options):
+On the Pi 5, from the repository root (see `MY_CHANGES.md` for all options):
 
 ```bash
 JOBS=4 ./build_scxt.sh

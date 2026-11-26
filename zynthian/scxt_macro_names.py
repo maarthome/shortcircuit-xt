@@ -20,7 +20,7 @@ Usage:
     scxt_macro_names.py --install       run automatically after every preset save
     scxt_macro_names.py --uninstall     remove the automatic run
 
-Part of the maarthome/shortcircuit-xt "my_own" branch.
+Part of the maarthome/shortcircuit-xt "My_Changes" branch.
 """
 
 import argparse
