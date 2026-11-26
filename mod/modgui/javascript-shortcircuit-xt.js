@@ -987,7 +987,6 @@ function (event, funcs) {
             options: [[0, 'NO LIMIT']].concat([1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 256].map(function (n) { return [n, '' + n]; }))}));
         var ms = el('div', 'scx-pcol scx-pms', r1);
         bind(d, U('part_mute'), makeToggle(d, ms, {uri: U('part_mute'), label: 'MUTE', title: 'Mute part 1'}));
-        bind(d, U('part_solo'), makeToggle(d, ms, {uri: U('part_solo'), label: 'SOLO', title: 'Solo part 1'}));
         var r2 = el('div', 'scx-prow scx-sends', pg);
         el('div', 'scx-sends-lbl', r2, 'Sends');
         for (var a = 1; a <= 4; a++)

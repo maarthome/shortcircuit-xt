@@ -68,7 +68,7 @@ mod matrix, then group effects | routing, and the 16 macros as one strip along t
   (delete, asks first).
 - **Part 1** (top right), with tabs:
   - **Settings:** volume, pan, tuning, transpose, MIDI channel (omni or 1–16), voices (no
-    limit or 1–256), mute, solo, and the **sends** to aux 1–4 (Shortcircuit's mixer page).
+    limit or 1–256), mute, and the **sends** to aux 1–4 (Shortcircuit's mixer page).
   - **FX 1–4:** part 1's own effects (the mixer page's part effects): on/off, type (reverb 1/2,
     flanger, phaser, dual delay, treemonster, nimbus, rotary speaker, floaty delay, bonsai),
     tempo sync and the effect's controls with Shortcircuit's value texts. The tab shows the
