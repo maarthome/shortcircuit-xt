@@ -43,7 +43,9 @@ The plugin has:
 
 ### The MOD panel (pi-Stomp)
 
-The bundle includes a panel for MOD-UI, from top to bottom:
+The bundle includes a panel for MOD-UI. It is wide and low (1650 × 900) to suit a wide screen,
+with three rows: group settings | browser | routing, then envelopes | group LFO | mod matrix,
+then group effects | macros. The parts:
 
 - **Group selector** (◀ list ▶): **All groups** (the default: every edit goes to all groups of
   part 1, like a multi-selection in Shortcircuit; the panel shows group 1's values) or one

@@ -902,8 +902,16 @@ function (event, funcs) {
         next.addEventListener('click', function (e) { e.stopPropagation(); selGroup(1); });
         [prev, next].forEach(function (b) { b.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
 
+        // wide layout, three rows:
+        //   group settings | browser | routing
+        //   envelopes | group LFO | mod matrix
+        //   group effects | macros
+        var row1 = el('div', 'scx-row scx-row1', root);
+        var row2 = el('div', 'scx-row scx-mods', root);
+        var row3 = el('div', 'scx-row scx-row3', root);
+
         // group settings
-        var gs = el('div', 'scx-card', root);
+        var gs = el('div', 'scx-card scx-gscard', row1);
         el('h4', '', gs, 'Group settings');
         var row = el('div', 'scx-gs', gs);
         GROUP.forEach(function (g) {
@@ -912,9 +920,8 @@ function (event, funcs) {
             else { spec.options = g[6]; bind(d, spec.uri, makeSelect(d, row, spec)); }
         });
 
-        // instrument browser + EG1
-        var mid = el('div', 'scx-mid', root);
-        var br = el('div', 'scx-card scx-browser', mid);
+        // instrument browser
+        var br = el('div', 'scx-card scx-browser', row1);
         el('h4', '', br, 'Instruments & samples');
         var kinds = el('div', 'scx-kinds', br);
         d.kind = 'instruments';
@@ -943,17 +950,16 @@ function (event, funcs) {
         el('div', 'scx-empty', d.loadedBox, 'Nothing loaded in part 1 yet.');
         d.entries = [];
         fillBrowser(d);
-        buildRouting(d, mid);
+        buildRouting(d, row1);
 
-        var mods = el('div', 'scx-mods', root);
-        buildEG(d, mods);
-        buildLFO(d, mods);
+        buildEG(d, row2);
+        buildLFO(d, row2);
+        buildMatrix(d, row2);
 
-        buildFx(d, root);
-        buildMatrix(d, root);
+        buildFx(d, row3);
 
         // macros (control ports p0..p15)
-        var mc = el('div', 'scx-card scx-macros', root);
+        var mc = el('div', 'scx-card scx-macros', row3);
         el('h4', '', mc, 'Macros');
         var grid = el('div', 'scx-grid', mc);
         for (var m = 0; m < 16; m++) {

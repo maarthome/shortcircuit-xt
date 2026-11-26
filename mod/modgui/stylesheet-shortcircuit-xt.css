@@ -1,5 +1,5 @@
 /* Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, My_Changes) */
-.scxt { width: 1100px; height: 1506px; background: #1e2227; color: #d6dae0;
+.scxt { width: 1650px; height: 900px; background: #1e2227; color: #d6dae0;
   font-family: "Inter", "Helvetica Neue", Arial, sans-serif; border-radius: 6px; position: relative; user-select: none; }
 .scxt .scx-root { position: absolute; inset: 0; padding: 8px 14px 10px; box-sizing: border-box; z-index: 25;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
@@ -122,9 +122,9 @@
 .scxt .scx-routing .scx-sel > div { order: -1; }
 
 /* group mod matrix */
-.scxt .scx-mrow { display: grid; grid-template-columns: 22px 28px 1.3fr 1fr 0.8fr 1.6fr 150px; gap: 5px; align-items: center; padding: 2px 0; }
+.scxt .scx-mrow { display: grid; grid-template-columns: 22px 28px 1.3fr 1fr 0.8fr 1.6fr 120px; gap: 5px; align-items: center; padding: 2px 0; }
 .scxt .scx-mhead { font-size: 10px; color: #8a929c; text-transform: uppercase; letter-spacing: .06em; padding-right: 10px; }
-.scxt .scx-mlist { height: 214px; overflow-y: auto; padding-right: 4px; }
+.scxt .scx-mlist { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .scxt .scx-mrow select { height: 24px; font-size: 11px; min-width: 0; width: 100%; background: #1d2126; color: #6d7580; padding: 0 4px; }
 .scxt .scx-mrow.used select { color: #f0a83a; }
 .scxt .scx-mrow.off.used select { color: #8a7650; }
@@ -185,7 +185,7 @@
 .scxt .scx-rt-out > div { display: none; }
 
 /* EG + LFO row */
-.scxt .scx-mods { display: flex; gap: 8px; flex: none; height: 300px; }
+.scxt .scx-mods { height: 300px; }
 .scxt .scx-eg-opts { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .scxt .scx-eg-opts .scx-sel { flex-direction: row; gap: 6px; }
 .scxt .scx-eg-opts .scx-sel > div { order: -1; }
@@ -222,3 +222,25 @@
 .scxt .scx-lfo h4::after, .scxt .scx-eg h4::after { order: 2; }
 .scxt [hidden] { display: none !important; }
 .scxt .scx-eg-hint { order: 4; font-size: 9px; color: #6d7580; letter-spacing: .04em; text-transform: none; font-weight: 400; }
+
+/* wide layout (1650 x 900): three rows of cards */
+.scxt .scx-row { display: flex; gap: 8px; flex: none; min-height: 0; }
+.scxt .scx-row1 { height: 236px; }
+.scxt .scx-row3 { flex: 1; }
+.scxt .scx-gscard { width: 560px; flex: none; display: flex; flex-direction: column; }
+.scxt .scx-gscard .scx-gs { flex: 1; flex-wrap: wrap; align-content: center; justify-content: center; gap: 10px 4px; }
+.scxt .scx-gscard .scx-knob { width: 70px; }
+.scxt .scx-gscard .scx-sel { width: 80px; }
+.scxt .scx-gscard .scx-sel select { width: 78px; }
+.scxt .scx-matrix { width: 600px; flex: none; display: flex; flex-direction: column; }
+.scxt .scx-fx { flex: 1; min-width: 0; }
+.scxt .scx-fx-slot { min-height: 0; height: 236px; }
+.scxt .scx-macros { width: 600px; flex: none; display: flex; flex-direction: column; }
+.scxt .scx-macros .scx-grid { flex: 1; align-content: space-evenly; }
+.scxt .scx-macros .scx-knob { width: 72px; }
+.scxt .scx-macros .scx-knob .scx-lbl { width: 68px; max-width: 68px; font-size: 11px; }
+.scxt .scx-mods .scx-eg { width: 400px; }
+.scxt .scx-mods .scx-matrix { width: 540px; }
+.scxt .scx-mods .scx-lfo-left { width: 210px; }
+.scxt .scx-mods .scx-lfo-shape select, .scxt .scx-mods .scx-lfo-svg { width: 210px; }
+.scxt .scx-mods .scx-lfo-body { gap: 8px; }
