@@ -168,7 +168,7 @@ function (event, funcs) {
         var list = d.list, q = d.search.value.trim().toLowerCase();
         list.innerHTML = '';
         if (!INSTRUMENTS.length) {
-            el('div', 'scx-empty', list, 'No instruments yet. Copy them to ~/.local/share/shortcircuit-xt/instruments on the pi-Stomp (build_scxt.sh --deploy --instruments DIR).');
+            el('div', 'scx-empty', list, 'No instruments yet. Copy them to ~/.local/share/ShortCircuit-XT on the pi-Stomp (build_scxt.sh --deploy --instruments DIR).');
             return;
         }
         if (q) {

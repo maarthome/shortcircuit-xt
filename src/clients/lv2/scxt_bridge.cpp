@@ -156,8 +156,8 @@ struct Bridge::Impl
                 if (!base.empty())
                     bases.push_back(base);
                 if (home)
-                    bases.push_back(std::string(home) + "/.local/share/shortcircuit-xt/instruments");
-                bases.push_back("/usr/share/shortcircuit-xt/instruments");
+                    bases.push_back(std::string(home) + "/.local/share/ShortCircuit-XT");
+                bases.push_back("/usr/share/ShortCircuit-XT");
                 for (auto &b : bases)
                 {
                     auto p = b + "/" + line;

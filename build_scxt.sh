@@ -22,9 +22,9 @@
 #   --deb              also make a .deb package in dist/
 #   --deb-only         only make the .deb from the last build (no build)
 #   --instruments DIR  copy the instruments (sfz, samples, subfolders) in DIR to the
-#                      pi-Stomp's ~/.local/share/shortcircuit-xt/instruments (with
+#                      pi-Stomp's ~/.local/share/ShortCircuit-XT (with
 #                      --deploy; like Surge's ~/.local/share/surge-xt) or into the
-#                      .deb as /usr/share/shortcircuit-xt/instruments (with --deb)
+#                      .deb as /usr/share/ShortCircuit-XT (with --deb)
 #   --with-clap        also build the plain CLAP (dist-linux-aarch64/Shortcircuit XT.clap)
 #   -h, --help         this help
 #
@@ -243,12 +243,12 @@ build() {
 deploy_pistomp() {
     local dest="${LV2_DIR:-.lv2}"   # relative = in the ssh user's home on the pi-Stomp
     if [ -n "$INSTRUMENTS" ]; then
-        log "Copying instruments from $INSTRUMENTS to $PISTOMP:.local/share/shortcircuit-xt/instruments"
-        ssh "$PISTOMP" "mkdir -p .local/share/shortcircuit-xt/instruments"
-        rsync -a --protect-args "${INSTRUMENTS%/}/" "$PISTOMP:.local/share/shortcircuit-xt/instruments/"
+        log "Copying instruments from $INSTRUMENTS to $PISTOMP:.local/share/ShortCircuit-XT"
+        ssh "$PISTOMP" "mkdir -p .local/share/ShortCircuit-XT"
+        rsync -a --protect-args "${INSTRUMENTS%/}/" "$PISTOMP:.local/share/ShortCircuit-XT/"
     fi
     log "Reading the instruments on the pi-Stomp for the panel's list"
-    ssh "$PISTOMP" 'cd .local/share/shortcircuit-xt/instruments 2>/dev/null && find . -type f' \
+    ssh "$PISTOMP" 'cd .local/share/ShortCircuit-XT 2>/dev/null && find . -type f' \
         | python3 "$ROOT/mod/instrument_list.py" "$BUNDLE"
     log "Installing on the pi-Stomp ($PISTOMP:$dest)"
     ssh "$PISTOMP" "mkdir -p '$dest' && rm -rf '$dest/$BUNDLE_NAME'"
@@ -276,8 +276,8 @@ make_deb() {
     mkdir -p "$pkg/DEBIAN" "$pkg$dest"
     cp -r "$BUNDLE" "$pkg$dest/"
     if [ -n "$INSTRUMENTS" ]; then
-        mkdir -p "$pkg/usr/share/shortcircuit-xt/instruments"
-        cp -r "${INSTRUMENTS%/}/." "$pkg/usr/share/shortcircuit-xt/instruments/"
+        mkdir -p "$pkg/usr/share/ShortCircuit-XT"
+        cp -r "${INSTRUMENTS%/}/." "$pkg/usr/share/ShortCircuit-XT/"
     fi
     cat > "$pkg/DEBIAN/control" <<EOF
 Package: shortcircuit-xt-lv2

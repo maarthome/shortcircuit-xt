@@ -50,7 +50,7 @@ The bundle includes a panel for MOD-UI, from top to bottom:
 - **Group settings:** volume, pan, tuning, pitch bend down/up, glide time and mode, velocity
   sensitivity, play mode (poly / piano / mono / legato), note priority, voices, MIDI channel,
   exclusive group.
-- **Instrument browser:** the instruments in `~/.local/share/shortcircuit-xt/instruments` on the
+- **Instrument browser:** the instruments in `~/.local/share/ShortCircuit-XT` on the
   pi-Stomp (folders, `.sfz` files and loose samples; samples that belong to an `.sfz` are hidden),
   with a search box. Choosing one asks "Add to part 1" (new group) or "Replace part 1".
 - **Group EG1 (amp envelope):** Dly, A, H, D, S, R.
@@ -95,7 +95,7 @@ builds only recompile what changed.
 | `--zynthian` | install on the Zynthian (`ZYNTHIAN=root@zynthian.local`) with the widget and restart Zynthian |
 | `--deb` | also make `dist/shortcircuit-xt-lv2_<version>_arm64.deb` |
 | `--deb-only` | only make the `.deb` from the last build |
-| `--instruments DIR` | copy the instruments in DIR (sfz, samples, subfolders) to the pi-Stomp's `~/.local/share/shortcircuit-xt/instruments` (with `--deploy`) or into the `.deb` as `/usr/share/shortcircuit-xt/instruments` (with `--deb`) — next to Surge's `~/.local/share/surge-xt` |
+| `--instruments DIR` | copy the instruments in DIR (sfz, samples, subfolders) to the pi-Stomp's `~/.local/share/ShortCircuit-XT` (with `--deploy`) or into the `.deb` as `/usr/share/ShortCircuit-XT` (with `--deb`) — next to Surge's `~/.local/share/surge-xt` |
 | `--with-clap` | also build the plain CLAP (`dist-linux-aarch64/Shortcircuit XT.clap`) |
 | `JOBS=n` | parallel compile jobs |
 | `VERBOSE=1` | show all compiler output instead of the progress line (the full output is always in `ignore/build-pi.log`) |
@@ -122,7 +122,7 @@ It prints 16 (one per macro). Samples must be on the pi-Stomp at the same path a
 saved.
 
 Instruments for the panel's instrument browser live on the pi-Stomp in
-`~/.local/share/shortcircuit-xt/instruments` (next to Surge's `~/.local/share/surge-xt`). Copy a
+`~/.local/share/ShortCircuit-XT` (next to Surge's `~/.local/share/surge-xt`). Copy a
 folder of instruments there from the dev Pi:
 
 ```bash

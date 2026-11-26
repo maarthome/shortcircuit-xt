@@ -46,8 +46,8 @@ def main():
     items.sort(key=natural)
 
     with open(os.path.join(bundle, 'instruments.txt'), 'w') as f:
-        f.write('# Shortcircuit XT instruments, relative to ~/.local/share/shortcircuit-xt/instruments\n')
-        f.write('# (or /usr/share/shortcircuit-xt/instruments); the panel uses the same order\n')
+        f.write('# Shortcircuit XT instruments, relative to ~/.local/share/ShortCircuit-XT\n')
+        f.write('# (or /usr/share/ShortCircuit-XT); the panel uses the same order\n')
         for p in items:
             f.write(p + '\n')
 
