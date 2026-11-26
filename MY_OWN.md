@@ -52,8 +52,10 @@ The bundle includes a panel for MOD-UI, from top to bottom:
 - **Instruments & samples browser:** any folder on the pi-Stomp. The folder menu has
   ⌂ Instruments (`~/.local/share/ShortCircuit-XT`), ⌂ Home, ⌂ USB / media (`/media`) and your
   ★ saved folders; you can also type a folder (e.g. `/media/usb0/Samples`) and press Enter.
-  It shows sub-folders and `.sfz .sf2 .multisample .wav .flac .aif(f) .ogg .mp3` files, with a
-  search box for the current folder. ☆ remembers the current folder (★ forgets it again).
+  It shows sub-folders and everything Shortcircuit XT can load (the same list as its own
+  browser): instruments `.sfz .sf2 .akp .exs .gig .multisample`, samples
+  `.wav .flac .aif .aiff .mp3 .opus`, and Shortcircuit's own `.scp` (part) and `.scm` (multi;
+  replaces all parts), with a search box for the current folder. ☆ remembers the current folder (★ forgets it again).
   The last folder you opened comes back next time. Both are kept in
   `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp. Choosing a file asks
   "Add to part 1" (new group) or "Replace part 1".

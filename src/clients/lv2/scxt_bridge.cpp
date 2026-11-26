@@ -10,6 +10,7 @@
 #include "messaging/messaging.h"
 #include "messaging/client/client_messages.h"
 #include "messaging/client/client_serial.h"
+#include "browser/browser.h"
 
 #include <algorithm>
 #include <array>
@@ -135,16 +136,10 @@ static bool natLess(const std::string &a, const std::string &b)
     return a.size() - i < b.size() - j;
 }
 
-static bool loadable(const fs::path &p)
-{
-    auto e = p.extension().string();
-    std::transform(e.begin(), e.end(), e.begin(), [](unsigned char c) { return (char)tolower(c); });
-    for (auto x : {".sfz", ".sf2", ".wav", ".flac", ".aif", ".aiff", ".ogg", ".mp3", ".multisample",
-                   ".gig", ".scm", ".scp"})
-        if (e == x)
-            return true;
-    return false;
-}
+// Shortcircuit XT's own lists (browser.cpp), so the panel shows what the engine loads:
+// samples .wav .flac .mp3 .opus .aif .aiff, instruments .sf2 .sfz .multisample .exs .gig .akp,
+// and Shortcircuit's own .scm (multi) and .scp (part)
+static bool loadable(const fs::path &p) { return scxt::browser::Browser::isLoadableFile(p); }
 
 struct Bridge::Impl
 {
@@ -326,11 +321,14 @@ struct Bridge::Impl
             return;
         }
         send<cmsg::SelectPart>((int16_t)0);
-        auto ext = fs::path(path).extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)tolower(c); });
-        bool ownGroups = ext == ".sfz" || ext == ".sf2" || ext == ".multisample" || ext == ".gig" ||
-                         ext == ".scm" || ext == ".scp";
-        if (loadMode == 1)
+        // instruments make their own groups; .scm (whole multi) and .scp (part) replace
+        bool ownGroups = scxt::browser::Browser::isLoadableMultiSample(path);
+        if (scxt::browser::Browser::isShortCircuitFormatFile(path))
+        {
+            send<cmsg::AddSample>(path); // .scp loads into the selected part (1), .scm everything
+            group = 0;
+        }
+        else if (loadMode == 1)
         {
             send<cmsg::ClearPart>(0);
             group = 0;
