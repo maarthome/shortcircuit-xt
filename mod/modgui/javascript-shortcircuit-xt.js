@@ -190,47 +190,57 @@ function (event, funcs) {
         fillBrowser(d);
     }
 
-    // option values: "B<folder>" open, "L<file>" load, "S" remember, "R" forget
+    // The list stays open while you open folders (also ".."), remember/forget a folder or
+    // switch Instruments/Waves; choosing a file, clicking outside or Esc closes it.
+    // item values: "B<folder>" open, "L<file>" load, "S" remember, "R" forget
     function fillBrowser(d) {
-        var sel = d.browser;
-        if (!sel) return;
-        sel.innerHTML = '';
-        function opt(parent, value, label) { var o = el('option', '', parent, label); o.value = value; return o; }
-        function grp(label) { var g = el('optgroup', '', sel); g.label = label; return g; }
-        var head = opt(sel, '', d.cwd === undefined ? 'Waiting for the plugin…' :
-            '\uD83D\uDCC2 ' + baseName(d.cwd) + (d.complete ? '' : ' (loading…)') + '  \u2014 choose a folder or file');
-        head.disabled = true;
+        if (!d.ddBtn) return;
+        d.ddBtn.textContent = d.cwd === undefined ? 'Waiting for the plugin…' :
+            '\uD83D\uDCC2 ' + baseName(d.cwd) + (d.complete ? '' : ' (loading…)');
+        d.ddBtn.title = d.cwd || '';
+        var pop = d.ddPop, keepScroll = d.ddDir === d.cwd ? pop.scrollTop : 0;
+        d.ddDir = d.cwd;
+        pop.innerHTML = '';
+        function item(value, label, cls) {
+            var it = el('div', 'scx-dd-item' + (cls ? ' ' + cls : ''), pop, label);
+            if (value) it.addEventListener('click', function (e) { e.stopPropagation(); browserChoice(d, value); });
+            else it.classList.add('disabled');
+            return it;
+        }
+        function head(label) { el('div', 'scx-dd-head', pop, label); }
         if (d.cwd !== undefined) {
-            var here = grp('This folder: ' + d.cwd);
-            if (d.cwd !== '/') opt(here, 'B' + parentOf(d.cwd), '\u2B11  .. (up)');
+            head(d.cwd);
+            if (d.cwd !== '/') item('B' + parentOf(d.cwd), '\u2B11  ..', 'dir');
             var dirs = d.entries.filter(function (e) { return e.dir; }), files = d.entries.filter(function (e) { return !e.dir && shown(d, e.name); });
-            dirs.forEach(function (e) { opt(here, 'B' + joinPath(d.cwd, e.name), '\uD83D\uDCC1  ' + e.name); });
-            files.forEach(function (e) { opt(here, 'L' + joinPath(d.cwd, e.name), '\u266A  ' + e.name); });
-            if (!files.length && !dirs.length && d.complete) opt(here, '', '(no ' + (d.kind === 'waves' ? 'waves' : 'instruments') + ' here)').disabled = true;
+            dirs.forEach(function (e) { item('B' + joinPath(d.cwd, e.name), '\uD83D\uDCC1  ' + e.name, 'dir'); });
+            files.forEach(function (e) { item('L' + joinPath(d.cwd, e.name), '\u266A  ' + e.name, 'file'); });
+            if (!files.length && !dirs.length && d.complete) item('', '(no ' + (d.kind === 'waves' ? 'waves' : 'instruments') + ' here)');
         }
-        var go = grp('Go to');
+        head('Go to');
         if (d.defaultDir) {
-            opt(go, 'B' + d.defaultDir, '\u2302  Instruments');
+            item('B' + d.defaultDir, '\u2302  Instruments', 'dir');
             var home = d.defaultDir.replace(/\/\.local\/share\/ShortCircuit-XT$/, '');
-            if (home !== d.defaultDir) opt(go, 'B' + home, '\u2302  Home');
+            if (home !== d.defaultDir) item('B' + home, '\u2302  Home', 'dir');
         }
-        opt(go, 'B/media', '\u2302  USB / media');
-        (d.saved || []).forEach(function (f) { opt(go, 'B' + f, '\u2605  ' + baseName(f) + '   (' + f + ')'); });
+        item('B/media', '\u2302  USB / media', 'dir');
+        (d.saved || []).forEach(function (f) { item('B' + f, '\u2605  ' + baseName(f) + '   (' + f + ')', 'dir'); });
         if (d.cwd !== undefined && d.cwd !== d.defaultDir) {
             var isSaved = (d.saved || []).indexOf(d.cwd) >= 0;
-            opt(go, isSaved ? 'R' : 'S', isSaved ? '\u2716  Forget this folder' : '\u2606  Remember this folder');
+            item(isSaved ? 'R' : 'S', isSaved ? '\u2716  Forget this folder' : '\u2606  Remember this folder', 'act');
         }
-        sel.value = '';
-        sel.title = d.cwd || '';
+        pop.scrollTop = keepScroll;
     }
 
-    function browserChoice(d) {
-        var v = d.browser.value;
-        d.browser.value = '';
-        if (!v) return;
+    function openBrowser(d, open) {
+        d.ddPop.hidden = !open;
+        d.ddBtn.classList.toggle('open', open);
+        if (open) fillBrowser(d);
+    }
+
+    function browserChoice(d, v) {
         var kind = v[0], path = v.substring(1);
-        if (kind === 'B') browse(d, path);
-        else if (kind === 'L') askLoad(d, path);
+        if (kind === 'B') { d.complete = false; browse(d, path); }
+        else if (kind === 'L') { openBrowser(d, false); askLoad(d, path); }
         else if (kind === 'S') funcs.patch_set(U('folder_add'), 's', d.cwd);
         else if (kind === 'R') funcs.patch_set(U('folder_remove'), 's', d.cwd);
     }
@@ -450,10 +460,16 @@ function (event, funcs) {
             b.addEventListener('click', function (e) { e.stopPropagation(); setKind(d, k[0]); });
             return b;
         });
-        d.browser = el('select', 'scx-browse', br);
-        d.browser.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-        d.browser.addEventListener('change', function () { browserChoice(d); });
-        el('div', 'scx-hint', br, 'Folders open in the same list; a file asks "Add" or "Replace". \u2606 in the list remembers a folder.');
+        var dd = el('div', 'scx-dd', br);
+        d.ddBtn = el('button', 'scx-dd-btn', dd, '');
+        d.ddPop = el('div', 'scx-dd-pop', dd); d.ddPop.hidden = true;
+        [d.ddBtn, d.ddPop].forEach(function (x) { x.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
+        d.ddPop.addEventListener('wheel', function (e) { e.stopPropagation(); });
+        d.ddBtn.addEventListener('click', function (e) { e.stopPropagation(); openBrowser(d, d.ddPop.hidden); });
+        // close when clicking anywhere else, or with Esc
+        document.addEventListener('mousedown', function (e) { if (!d.ddPop.hidden && !dd.contains(e.target)) openBrowser(d, false); }, true);
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !d.ddPop.hidden) openBrowser(d, false); });
+        el('div', 'scx-hint', br, 'Click to open. Folders (and ..) open in the same list, which stays open; a file asks "Add" or "Replace".');
         d.entries = [];
         fillBrowser(d);
 

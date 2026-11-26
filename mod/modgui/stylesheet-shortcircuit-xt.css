@@ -101,3 +101,17 @@
 .scxt .scx-hint { font-size: 11px; color: #6d7580; margin-top: 6px; }
 .scxt .scx-kinds { display: flex; gap: 6px; margin-bottom: 6px; }
 .scxt .scx-kinds button { flex: 1; height: 28px; }
+
+/* the browser list: a drop-down that stays open while browsing */
+.scxt .scx-dd { position: relative; }
+.scxt .scx-dd-btn { width: 100%; height: 34px; font-size: 14px; color: #f0a83a; background: #1d2126; text-align: left; padding: 0 30px 0 10px; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scxt .scx-dd-btn::after { content: "\25BE"; position: absolute; right: 10px; top: 0; color: #9aa4b2; }
+.scxt .scx-dd-btn.open { border-color: #f0a83a; background: #1d2126; color: #f0a83a; }
+.scxt .scx-dd-pop { position: absolute; left: 0; right: 0; top: 36px; max-height: 460px; overflow-y: auto; z-index: 60;
+  background: #1d2126; border: 1px solid #f0a83a; border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+.scxt .scx-dd-head { position: sticky; top: 0; background: #2a2f36; color: #9aa4b2; font-size: 11px; padding: 4px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scxt .scx-dd-item { padding: 5px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scxt .scx-dd-item:hover { background: #30363e; }
+.scxt .scx-dd-item.file { color: #f0d9b0; }
+.scxt .scx-dd-item.act { color: #9aa4b2; }
+.scxt .scx-dd-item.disabled { color: #6d7580; cursor: default; }

@@ -54,8 +54,8 @@ The bundle includes a panel for MOD-UI, from top to bottom:
   (`.wav .flac .aif .aiff .mp3 .opus`), and one drop-down list with the current folder:
   `..`, its sub-folders and the files of the chosen kind, then "Go to": ⌂ Instruments
   (`~/.local/share/ShortCircuit-XT`), ⌂ Home, ⌂ USB / media (`/media`), your ★ saved folders
-  and ☆ Remember / ✖ Forget this folder. Choosing a folder opens it in the same list; choosing
-  a file asks "Add to part 1" (new group) or "Replace part 1". The last folder and the saved
+  and ☆ Remember / ✖ Forget this folder. The list stays open while you open folders (also
+  `..`) or switch Instruments/Waves; choosing a file closes it and asks "Add to part 1" (new group) or "Replace part 1". The last folder and the saved
   folders are kept in `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp.
 - **Group EG1 (amp envelope):** Dly, A, H, D, S, R.
 - **Group effects FX1–FX4:** per slot an on/off button and the effect type (Shortcircuit's own
