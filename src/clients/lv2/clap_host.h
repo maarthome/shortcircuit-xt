@@ -76,6 +76,34 @@ struct ClapModule
         return mod;
     }
 
+    // A plugin compiled into this binary (no .clap file): initialise its entry
+    // once per process with `path` (the LV2 bundle) and keep it.
+    static ClapModule *fromEntry(const clap_plugin_entry_t *entry, const std::string &path)
+    {
+        static std::mutex m;
+        static ClapModule *mod = nullptr;
+        std::lock_guard<std::mutex> g(m);
+        if (mod)
+            return mod;
+        if (!entry || !entry->init(path.c_str()))
+        {
+            fprintf(stderr, "[scxt-lv2] plugin init failed\n");
+            return nullptr;
+        }
+        auto *nm = new ClapModule();
+        nm->path = path;
+        nm->entry = entry;
+        nm->factory = (const clap_plugin_factory_t *)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+        if (!nm->factory || nm->factory->get_plugin_count(nm->factory) == 0)
+        {
+            fprintf(stderr, "[scxt-lv2] no plugin factory\n");
+            delete nm;
+            return nullptr;
+        }
+        mod = nm;
+        return mod;
+    }
+
     // The CLAP id of the first plugin in the module (Shortcircuit XT has one)
     std::string firstPluginId() const
     {

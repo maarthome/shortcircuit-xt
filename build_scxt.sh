@@ -1,126 +1,231 @@
 #!/usr/bin/env bash
 #
-# build_scxt.sh - build Shortcircuit XT on a Raspberry Pi 5 (aarch64, Debian trixie)
-#                 as CLAP + LV2 (maarthome/shortcircuit-xt, my_own branch)
+# build_scxt.sh - build Shortcircuit XT as LV2 on a Raspberry Pi 5
+#                 (aarch64, Debian trixie) - maarthome/shortcircuit-xt, my_own branch
 #
-# Result: dist-linux-aarch64/
-#           ShortcircuitXT.lv2/         <- LV2 bundle (copy this to the Zynthian)
-#           Shortcircuit XT.clap        <- the plain CLAP plugin
+# The LV2 is built from source as part of the Shortcircuit XT build
+# (-DSCXT_BUILD_LV2=ON): Shortcircuit's own plugin code is compiled into
+# scxt_lv2.so, like upstream builds its VST3. There is no .clap file in the
+# bundle and no CLAP is loaded at runtime.
 #
-# Options (environment variables):
-#   JOBS=n          parallel compile jobs (default: all cores)
-#   SWAP_GB=n       size of the temporary swap file (default: 6, 0 = none)
-#   SKIP_DEPS=1     don't apt-get install the build dependencies
-#   BUILD_ALL=1     also build VST3 and the standalone app
-#   MAX_PARAMS=n    only expose the first n macro knobs as LV2 controls
-#                   (default: all 256 = 16 parts x 16 macros; 16 = part 1 only)
+# Result: dist-linux-aarch64/ShortcircuitXT.lv2/
+#
+# Usage: ./build_scxt.sh [options]
+#   --no-deps          don't apt-get install the build dependencies (= SKIP_DEPS=1)
+#   --deploy           install on the pi-Stomp over ssh (needs PISTOMP=user@host)
+#                      and restart mod-host and mod-ui there
+#   --lv2-dir DIR      LV2 folder on the pi-Stomp (default: ~/.lv2 of the ssh user)
+#                      or, with --deb, the folder the package installs into
+#                      (default for --deb: /usr/lib/lv2); also LV2_DIR=DIR
+#   --zynthian         install on the Zynthian over ssh (ZYNTHIAN=root@zynthian.local)
+#                      with the Zynthian widget, and restart Zynthian
+#   --deb              also make a .deb package in dist/
+#   --deb-only         only make the .deb from the last build (no build)
+#   --with-clap        also build the plain CLAP (dist-linux-aarch64/Shortcircuit XT.clap)
+#   -h, --help         this help
+#
+# Environment variables:
+#   JOBS=n             parallel compile jobs (default: all cores)
+#   SWAP_GB=n          size of the temporary swap file (default: 6, 0 = none)
+#   MAX_PARAMS=n       number of macro knobs as LV2 control ports
+#                      (default: 16 = part 1; 256 = all 16 parts)
+#   PISTOMP=user@host  the pi-Stomp, e.g. pistomp@pistomp.local
+#   ZYNTHIAN=user@host the Zynthian (default root@zynthian.local)
+#
+# Examples:
+#   JOBS=4 ./build_scxt.sh
+#   JOBS=4 PISTOMP=pistomp@pistomp.local ./build_scxt.sh --deploy
+#   JOBS=4 ./build_scxt.sh --zynthian
+#   JOBS=4 ./build_scxt.sh --deb --lv2-dir /home/pistomp/.lv2
 #
 set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")"
 ROOT="$PWD"
+
+usage() { sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; }
+
+DO_DEPLOY=0; DO_ZYNTHIAN=0; DO_DEB=0; DEB_ONLY=0; WITH_CLAP=0
+LV2_DIR="${LV2_DIR:-}"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --deps)       SKIP_DEPS=0 ;;
+        --no-deps)    SKIP_DEPS=1 ;;
+        --deploy)     DO_DEPLOY=1 ;;
+        --zynthian)   DO_ZYNTHIAN=1 ;;
+        --deb)        DO_DEB=1 ;;
+        --deb-only)   DO_DEB=1; DEB_ONLY=1 ;;
+        --with-clap)  WITH_CLAP=1 ;;
+        --lv2-dir)    shift; LV2_DIR="${1:?--lv2-dir needs a folder}" ;;
+        --lv2-dir=*)  LV2_DIR="${1#*=}" ;;
+        -h|--help)    usage; exit 0 ;;
+        *) echo "Unknown option: $1 (see --help)" >&2; exit 1 ;;
+    esac
+    shift
+done
+
 JOBS="${JOBS:-$(nproc)}"
 SWAP_GB="${SWAP_GB:-6}"
+MAX_PARAMS="${MAX_PARAMS:-16}"
+ZYNTHIAN="${ZYNTHIAN:-root@zynthian.local}"
 BUILD_DIR="$ROOT/ignore/build-pi"
-LV2_BUILD_DIR="$ROOT/ignore/build-lv2"
 DIST="$ROOT/dist-linux-aarch64"
-BUNDLE="$DIST/ShortcircuitXT.lv2"
+BUNDLE_NAME="ShortcircuitXT.lv2"
+BUNDLE="$DIST/$BUNDLE_NAME"
+WIDGET="$ROOT/zynthian/ShortcircuitXT-zyngui.lv2"
 SWAPFILE="/var/tmp/scxt_build.swap"
 
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
+die() { echo "ERROR: $*" >&2; exit 1; }
 
-# --- temporary swap (the Pi has 4 GB RAM; some files need a lot to compile) ---
-cleanup_swap() {
-    if [ -f "$SWAPFILE" ]; then
-        log "Removing temporary swap file"
-        sudo swapoff "$SWAPFILE" 2>/dev/null || true
-        sudo rm -f "$SWAPFILE"
+if [ "$DO_DEPLOY" = "1" ] && [ -z "${PISTOMP:-}" ]; then
+    die "--deploy needs the pi-Stomp address, e.g. PISTOMP=pistomp@pistomp.local ./build_scxt.sh --deploy"
+fi
+if [ "$DO_DEB" = "1" ] && [ -n "$LV2_DIR" ] && [ "${LV2_DIR#/}" = "$LV2_DIR" ]; then
+    die "--deb needs a full path for --lv2-dir (a package can't install into ~ or a relative folder)"
+fi
+
+# ---------------------------------------------------------------------------
+build() {
+    # temporary swap (the Pi has 4 GB RAM; some files need a lot to compile)
+    cleanup_swap() {
+        if [ -f "$SWAPFILE" ]; then
+            log "Removing temporary swap file"
+            sudo swapoff "$SWAPFILE" 2>/dev/null || true
+            sudo rm -f "$SWAPFILE"
+        fi
+    }
+    if [ "$SWAP_GB" != "0" ]; then
+        trap cleanup_swap EXIT
+        if ! swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
+            log "Adding temporary ${SWAP_GB} GB swap file at $SWAPFILE"
+            sudo fallocate -l "${SWAP_GB}G" "$SWAPFILE"
+            sudo chmod 600 "$SWAPFILE"
+            sudo mkswap "$SWAPFILE" >/dev/null
+            sudo swapon "$SWAPFILE"
+        fi
     fi
+
+    if [ "${SKIP_DEPS:-0}" != "1" ]; then
+        log "Installing build dependencies"
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build git pkg-config \
+            lv2-dev lilv-utils \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev libjack-jackd2-dev
+    fi
+
+    log "Updating submodules"
+    git submodule update --init --recursive
+
+    log "Configuring Shortcircuit XT with LV2"
+    cmake -S "$ROOT" -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DSCXT_BUILD_LV2=ON -DSCXT_BUILD_VST3=OFF
+
+    local targets=(scxt_lv2 scxt-lv2-ttl)
+    [ "$WITH_CLAP" = "1" ] && targets+=(scxt_clapfirst_clap)
+    log "Building ${targets[*]} with $JOBS jobs - the first build takes a long time on a Pi"
+    cmake --build "$BUILD_DIR" --target "${targets[@]}" -j "$JOBS"
+
+    local so ttlgen
+    so="$(find "$BUILD_DIR" -name scxt_lv2.so -type f | head -n1)"
+    ttlgen="$(find "$BUILD_DIR" -name scxt-lv2-ttl -type f -perm -u+x | head -n1)"
+    [ -n "$so" ] || die "scxt_lv2.so not found in $BUILD_DIR"
+    [ -n "$ttlgen" ] || die "scxt-lv2-ttl not found in $BUILD_DIR"
+
+    log "Assembling $BUNDLE"
+    rm -rf "$BUNDLE"
+    mkdir -p "$BUNDLE"
+    cp "$so" "$BUNDLE/scxt_lv2.so"
+    # tools to rename the knobs later, also on the Zynthian (see generate_ttl.sh)
+    cp "$ttlgen" "$ROOT/generate_ttl.sh" "$BUNDLE/"
+    strip --strip-unneeded "$BUNDLE/scxt_lv2.so" "$BUNDLE/scxt-lv2-ttl" || true
+    "$BUNDLE/scxt-lv2-ttl" "$BUNDLE/scxt_lv2.so" "$BUNDLE" scxt_lv2.so "$MAX_PARAMS"
+
+    if [ "$WITH_CLAP" = "1" ]; then
+        local clap
+        clap="$(find "$BUILD_DIR" -name 'Shortcircuit XT.clap' -type f | head -n1)"
+        [ -n "$clap" ] && cp "$clap" "$DIST/Shortcircuit XT.clap"
+    fi
+
+    log "Checking the bundle with lv2ls"
+    if command -v lv2ls >/dev/null; then
+        if LV2_PATH="$DIST" lv2ls | grep -q 'maarthome/shortcircuit-xt'; then
+            echo "lv2ls finds: $(LV2_PATH="$DIST" lv2ls | grep 'maarthome/shortcircuit-xt')"
+        else
+            echo "WARNING: lv2ls does not list the plugin - check the .ttl files in $BUNDLE" >&2
+        fi
+    fi
+    echo "Control ports: $(grep -c 'lv2:ControlPort' "$BUNDLE/shortcircuit_xt.ttl")"
+    du -sh "$BUNDLE"
 }
-if [ "$SWAP_GB" != "0" ]; then
-    trap cleanup_swap EXIT
-    if ! swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
-        log "Adding temporary ${SWAP_GB} GB swap file at $SWAPFILE"
-        sudo fallocate -l "${SWAP_GB}G" "$SWAPFILE"
-        sudo chmod 600 "$SWAPFILE"
-        sudo mkswap "$SWAPFILE" >/dev/null
-        sudo swapon "$SWAPFILE"
-    fi
+
+# ---------------------------------------------------------------------------
+deploy_pistomp() {
+    local dest="${LV2_DIR:-.lv2}"   # relative = in the ssh user's home on the pi-Stomp
+    log "Installing on the pi-Stomp ($PISTOMP:$dest)"
+    ssh "$PISTOMP" "mkdir -p '$dest' && rm -rf '$dest/$BUNDLE_NAME'"
+    rsync -a --protect-args "$BUNDLE" "$PISTOMP:$dest/"
+    log "Restarting mod-host and mod-ui on the pi-Stomp (may ask for its sudo password)"
+    ssh -t "$PISTOMP" "sudo systemctl restart mod-host mod-ui"
+}
+
+deploy_zynthian() {
+    log "Installing on the Zynthian ($ZYNTHIAN:/usr/local/lib/lv2)"
+    ssh "$ZYNTHIAN" "rm -rf /usr/local/lib/lv2/$BUNDLE_NAME"
+    scp -rq "$BUNDLE" "$WIDGET" "$ZYNTHIAN:/usr/local/lib/lv2/"
+    log "Restarting Zynthian"
+    ssh "$ZYNTHIAN" "systemctl restart zynthian"
+}
+
+make_deb() {
+    [ -f "$BUNDLE/scxt_lv2.so" ] || die "no build in $BUNDLE - build first (without --deb-only)"
+    local dest="${LV2_DIR:-/usr/lib/lv2}"
+    local version
+    version="1.0+$(date +%Y%m%d).$(git rev-parse --short HEAD)"
+    local pkg="$ROOT/dist/deb-root"
+    log "Making .deb (installs into $dest)"
+    rm -rf "$pkg"
+    mkdir -p "$pkg/DEBIAN" "$pkg$dest"
+    cp -r "$BUNDLE" "$pkg$dest/"
+    cat > "$pkg/DEBIAN/control" <<EOF
+Package: shortcircuit-xt-lv2
+Version: $version
+Architecture: arm64
+Maintainer: maarthome
+Section: sound
+Priority: optional
+Depends: libc6, libstdc++6, libx11-6, libfreetype6, libfontconfig1
+Description: Shortcircuit XT sampler as LV2 plugin
+ Built from source (maarthome/shortcircuit-xt, my_own branch) for MOD /
+ pi-Stomp, Zynthian and other LV2 hosts.
+EOF
+    cat > "$pkg/DEBIAN/postinst" <<'EOF'
+#!/bin/sh
+set -e
+if command -v systemctl >/dev/null 2>&1; then
+    for s in mod-host mod-ui; do
+        systemctl is-active --quiet "$s" 2>/dev/null && systemctl restart "$s" || true
+    done
 fi
+exit 0
+EOF
+    chmod 755 "$pkg/DEBIAN/postinst"
+    mkdir -p "$ROOT/dist"
+    dpkg-deb --root-owner-group --build "$pkg" "$ROOT/dist/shortcircuit-xt-lv2_${version}_arm64.deb"
+    rm -rf "$pkg"
+}
 
-# --- dependencies ---
-if [ "${SKIP_DEPS:-0}" != "1" ]; then
-    log "Installing build dependencies"
-    sudo apt-get update
-    sudo apt-get install -y build-essential cmake ninja-build git pkg-config \
-        lv2-dev lilv-utils \
-        libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
-        libfreetype-dev libfontconfig1-dev libasound2-dev libjack-jackd2-dev
-fi
-
-log "Updating submodules"
-git submodule update --init --recursive
-
-# --- Shortcircuit XT itself (CLAP) ---
-CMAKE_ARGS=(-G Ninja -DCMAKE_BUILD_TYPE=Release)
-TARGET=scxt_clapfirst_clap
-if [ "${BUILD_ALL:-0}" = "1" ]; then
-    TARGET=scxt_clapfirst_all
-else
-    CMAKE_ARGS+=(-DSCXT_BUILD_VST3=OFF)
-fi
-
-log "Configuring Shortcircuit XT"
-cmake -S "$ROOT" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}"
-
-log "Building Shortcircuit XT ($TARGET) with $JOBS jobs - this takes a long time on a Pi"
-cmake --build "$BUILD_DIR" --target "$TARGET" -j "$JOBS"
-
-CLAP_FILE="$(find "$BUILD_DIR" -name 'Shortcircuit XT.clap' -type f | head -n1)"
-if [ -z "$CLAP_FILE" ]; then
-    echo "Could not find 'Shortcircuit XT.clap' in $BUILD_DIR" >&2
-    exit 1
-fi
-echo "CLAP: $CLAP_FILE"
-
-# --- LV2 wrapper ---
-log "Building the LV2 wrapper"
-cmake -S "$ROOT/src/clients/lv2" -B "$LV2_BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build "$LV2_BUILD_DIR" -j "$JOBS"
-
-log "Assembling $BUNDLE"
-rm -rf "$BUNDLE"
-mkdir -p "$BUNDLE"
-cp "$CLAP_FILE" "$DIST/Shortcircuit XT.clap"
-cp "$CLAP_FILE" "$BUNDLE/scxt.clap"
-cp "$LV2_BUILD_DIR/scxt_lv2.so" "$BUNDLE/"
-# tools to rename the knobs later, also on the Zynthian (see generate_ttl.sh)
-cp "$LV2_BUILD_DIR/clap2lv2-ttl" "$ROOT/generate_ttl.sh" "$ROOT/zynthian/scxt_macro_names.py" "$BUNDLE/"
-strip --strip-unneeded "$BUNDLE/scxt_lv2.so" "$BUNDLE/scxt.clap" "$BUNDLE/clap2lv2-ttl" || true
-if [ -n "${MAX_PARAMS:-}" ]; then
-    "$LV2_BUILD_DIR/clap2lv2-ttl" "$BUNDLE/scxt.clap" "$BUNDLE" scxt_lv2.so "$MAX_PARAMS"
-else
-    "$LV2_BUILD_DIR/clap2lv2-ttl" "$BUNDLE/scxt.clap" "$BUNDLE" scxt_lv2.so
-fi
-
-log "Checking the bundle with lv2ls"
-if command -v lv2ls >/dev/null; then
-    if LV2_PATH="$DIST" lv2ls | grep -q 'maarthome/shortcircuit-xt'; then
-        echo "lv2ls finds: $(LV2_PATH="$DIST" lv2ls | grep 'maarthome/shortcircuit-xt')"
-    else
-        echo "WARNING: lv2ls does not list the plugin - check the .ttl files in $BUNDLE" >&2
-    fi
-fi
+# ---------------------------------------------------------------------------
+[ "$DEB_ONLY" = "1" ] || build
+[ "$DO_DEB" = "1" ] && make_deb
+[ "$DO_DEPLOY" = "1" ] && deploy_pistomp
+[ "$DO_ZYNTHIAN" = "1" ] && deploy_zynthian
 
 log "Done"
-du -sh "$BUNDLE"
 cat <<EOF
 
 LV2 bundle: $BUNDLE
-
-Copy it to the Zynthian with:
-  scp -r "$BUNDLE" root@zynthian.local:/usr/local/lib/lv2/
-
-Then search for new plugins in the Zynthian webconf (Software > LV2 Plugins)
-and enable "Shortcircuit XT".
+  install on the pi-Stomp:  PISTOMP=pistomp@pistomp.local ./build_scxt.sh --deploy --no-deps
+  install on the Zynthian:  ./build_scxt.sh --zynthian --no-deps
 EOF

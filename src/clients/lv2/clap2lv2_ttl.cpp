@@ -1,18 +1,23 @@
 /*
- * clap2lv2_ttl.cpp - writes manifest.ttl and the plugin .ttl for an LV2 bundle
- * that wraps a CLAP plugin with clap2lv2.
+ * clap2lv2_ttl.cpp (scxt-lv2-ttl) - writes manifest.ttl and the plugin .ttl
+ * of the Shortcircuit XT LV2 bundle.
  *
  * Part of the maarthome/shortcircuit-xt "my_own" branch LV2 wrapper.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
- * Usage: clap2lv2-ttl [--state FILE] [--dump-state FILE]
- *                     <file.clap> <bundle-dir> <binary.so> [max-params]
+ * Usage: scxt-lv2-ttl [--state FILE] [--dump-state FILE] [--short-names]
+ *                     <scxt_lv2.so> <bundle-dir> <binary-name> [max-params]
+ *
+ *   <scxt_lv2.so>      the built LV2 binary; the plugin is read from it
  *
  *   --state FILE       load this plugin state first, so the .ttl gets the
  *                      knob names from it (e.g. your own macro names)
  *   --dump-state FILE  write the plugin's (default or loaded) state to FILE
  *   --short-names      use only the part after " - " in names that have one
  *                      ("P1 M1 - Cutoff" becomes "Cutoff")
+ *
+ * Names of part 1 macros lose their "P1 " prefix when only part 1 is exposed.
+ * MOD metadata (mod:brand, mod:label, version) is written for MOD / pi-Stomp.
  *
  * The plugin is loaded once to read its name and parameter list; port order
  * must match clap2lv2.cpp (events in, out L, out R, then one control per param).
@@ -21,6 +26,7 @@
 #include "clap_host.h"
 
 #include <cstdlib>
+#include <dlfcn.h>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -68,6 +74,14 @@ static std::string displayName(const std::string &name, bool shortNames)
     return name.substr(pos + 3);
 }
 
+// "P1 Macro 3" -> "Macro 3" when only part 1 is exposed
+static std::string stripPart1(const std::string &name, bool onlyPart1)
+{
+    if (onlyPart1 && name.rfind("P1 ", 0) == 0)
+        return name.substr(3);
+    return name;
+}
+
 static bool readFile(const std::string &path, std::vector<uint8_t> &out)
 {
     std::ifstream f(path, std::ios::binary);
@@ -97,19 +111,30 @@ int main(int argc, char **argv)
     if (pos.size() < 3)
     {
         fprintf(stderr,
-                "usage: %s [--state FILE] [--dump-state FILE] [--short-names] <file.clap> <bundle-dir> "
-                "<binary.so> [max-params]\n",
+                "usage: %s [--state FILE] [--dump-state FILE] [--short-names] <scxt_lv2.so> <bundle-dir> "
+                "<binary-name> [max-params]\n",
                 argv[0]);
         return 1;
     }
-    std::string clapPath = pos[0], bundle = pos[1], binary = pos[2];
+    std::string soPath = pos[0], bundle = pos[1], binary = pos[2];
     long maxParams = pos.size() > 3 ? atol(pos[3].c_str()) : -1;
     if (!bundle.empty() && bundle.back() != '/')
         bundle += '/';
 
-    auto *mod = clap2lv2::ClapModule::get(clapPath);
-    if (!mod)
+    void *lib = dlopen(soPath.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!lib)
+    {
+        fprintf(stderr, "dlopen(%s) failed: %s\n", soPath.c_str(), dlerror());
         return 2;
+    }
+    using EntryFn = const clap_plugin_entry_t *(*)();
+    auto entryFn = (EntryFn)dlsym(lib, "scxt_lv2_plugin_entry");
+    auto *mod = entryFn ? clap2lv2::ClapModule::fromEntry(entryFn(), clap2lv2::dirOf(soPath)) : nullptr;
+    if (!mod)
+    {
+        fprintf(stderr, "%s has no Shortcircuit XT plugin entry\n", soPath.c_str());
+        return 2;
+    }
 
     clap2lv2::Host host;
     auto id = mod->firstPluginId();
@@ -247,7 +272,7 @@ int main(int argc, char **argv)
               << "        a lv2:InputPort , lv2:ControlPort ;\n"
               << "        lv2:index " << (3 + i) << " ;\n"
               << "        lv2:symbol \"p" << i << "\" ;\n"
-              << "        lv2:name \"" << esc(displayName(info.name, shortNames)) << "\" ;\n"
+              << "        lv2:name \"" << esc(stripPart1(displayName(info.name, shortNames), np <= 16)) << "\" ;\n"
               << "        lv2:default " << info.default_value << " ;\n"
               << "        lv2:minimum " << info.min_value << " ;\n"
               << "        lv2:maximum " << info.max_value;
@@ -263,6 +288,15 @@ int main(int argc, char **argv)
     }
 
     std::string name = desc && desc->name ? desc->name : "CLAP plugin";
+    // LV2 versions: minor/micro from the plugin's "major.minor.micro" version
+    int majorV = 0, minorV = 0, microV = 0;
+    if (desc && desc->version)
+        sscanf(desc->version, "%d.%d.%d", &majorV, &minorV, &microV);
+    // LV2 rule: an odd minorVersion, or 0, means "unstable"; keep it even and > 0
+    if (minorV % 2)
+        minorV += 1;
+    if (minorV == 0)
+        minorV = 2;
     std::string vendor = desc && desc->vendor ? desc->vendor : "";
     std::string ttlName = symbolOf(name) + ".ttl";
 
@@ -294,11 +328,17 @@ int main(int argc, char **argv)
            "@prefix state: <http://lv2plug.in/ns/ext/state#> .\n"
            "@prefix time: <http://lv2plug.in/ns/ext/time#> .\n"
            "@prefix ui:   <http://lv2plug.in/ns/extensions/ui#> .\n"
+           "@prefix mod:  <http://moddevices.com/ns/mod#> .\n"
            "@prefix urid: <http://lv2plug.in/ns/ext/urid#> .\n\n"
         << groups.str() << "<" << CLAP2LV2_URI << ">\n"
         << "    a lv2:Plugin , lv2:InstrumentPlugin ;\n"
         << "    doap:name \"" << esc(name) << "\" ;\n"
         << "    doap:license <https://www.gnu.org/licenses/gpl-3.0> ;\n"
+        << "    lv2:minorVersion " << minorV << " ;\n"
+        << "    lv2:microVersion " << microV << " ;\n"
+        << "    mod:brand \"Surge Synth Team\" ;\n"
+        << "    mod:label \"SC XT\" ;\n"
+        << "    rdfs:comment \"Shortcircuit XT sampler, built as LV2 from source (maarthome/shortcircuit-xt my_own)\" ;\n"
         << "    doap:maintainer [ foaf:name \"" << esc(vendor) << " (LV2 wrapper: maarthome)\" ] ;\n"
         << "    lv2:requiredFeature urid:map ;\n"
         << "    lv2:optionalFeature lv2:hardRTCapable , opts:options , bufsz:boundedBlockLength ;\n"

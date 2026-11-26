@@ -1,11 +1,13 @@
 /*
- * clap2lv2.cpp - LV2 plugin + LV2 X11 UI that run a CLAP plugin (Shortcircuit XT).
+ * clap2lv2.cpp - the Shortcircuit XT LV2 plugin + LV2 X11 UI.
  *
  * Part of the maarthome/shortcircuit-xt "my_own" branch LV2 wrapper.
  * Licensed under the MIT license, like the rest of src/ in this repository.
  *
- * The LV2 bundle contains this binary, the .clap file and two .ttl files
- * written by clap2lv2-ttl. Port layout (must match clap2lv2-ttl.cpp):
+ * Shortcircuit XT's own plugin code is linked into this binary and driven
+ * through its plugin interface in the same process (like the upstream VST3,
+ * which clap-wrapper builds the same way). The bundle holds this binary and
+ * two .ttl files written by scxt-lv2-ttl. Port layout (must match clap2lv2-ttl.cpp):
  *   0        atom input  (MIDI + time:Position)
  *   1, 2     audio out L / R (the CLAP "Main Out")
  *   3 + i    control input for CLAP parameter index i
@@ -40,9 +42,19 @@
 #ifndef CLAP2LV2_URI
 #define CLAP2LV2_URI "https://github.com/maarthome/shortcircuit-xt#lv2"
 #endif
-#ifndef CLAP2LV2_CLAP_FILE
-#define CLAP2LV2_CLAP_FILE "scxt.clap"
-#endif
+// Shortcircuit XT's plugin code (the scxt-plugin library) is compiled into
+// this binary, exactly as clap-wrapper does for the upstream VST3: these are
+// its factory functions, called directly, no .clap file is loaded.
+namespace scxt::clap_first
+{
+extern const void *get_factory(const char *factory_id);
+extern bool clap_init(const char *p);
+extern void clap_deinit();
+} // namespace scxt::clap_first
+
+static const clap_plugin_entry_t scxtEntry = {CLAP_VERSION, scxt::clap_first::clap_init,
+                                              scxt::clap_first::clap_deinit,
+                                              scxt::clap_first::get_factory};
 
 #define CLAP2LV2_UI_URI CLAP2LV2_URI "-ui"
 #define CLAP2LV2_STATE_KEY CLAP2LV2_URI "-clapstate"
@@ -184,12 +196,7 @@ struct Plugin
             }
         }
 
-        std::string clapPath = std::string(bundlePath);
-        if (!clapPath.empty() && clapPath.back() != '/')
-            clapPath += '/';
-        clapPath += CLAP2LV2_CLAP_FILE;
-
-        module = ClapModule::get(clapPath);
+        module = ClapModule::fromEntry(&scxtEntry, bundlePath);
         if (!module)
             return false;
 
@@ -788,6 +795,9 @@ static const LV2UI_Descriptor uiDescriptor{CLAP2LV2_UI_URI, uiInstantiate, uiCle
 
 extern "C"
 {
+    // used by scxt-lv2-ttl to read the plugin's knob list at build time
+    LV2_SYMBOL_EXPORT const clap_plugin_entry_t *scxt_lv2_plugin_entry() { return &scxtEntry; }
+
     LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
     {
         return index == 0 ? &clap2lv2::pluginDescriptor : nullptr;

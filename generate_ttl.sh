@@ -25,7 +25,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
 if [ -z "${BUNDLE:-}" ]; then
-    if [ -f "$HERE/scxt.clap" ]; then
+    if [ -f "$HERE/scxt_lv2.so" ]; then
         BUNDLE="$HERE"
     else
         BUNDLE="$HERE/dist-linux-aarch64/ShortcircuitXT.lv2"
@@ -33,8 +33,8 @@ if [ -z "${BUNDLE:-}" ]; then
 fi
 STATE="${1:-$HOME/.local/share/shortcircuit-xt-lv2/last-state.scxtstate}"
 
-if [ ! -f "$BUNDLE/scxt.clap" ]; then
-    echo "No scxt.clap in $BUNDLE - set BUNDLE=/path/to/ShortcircuitXT.lv2" >&2
+if [ ! -f "$BUNDLE/scxt_lv2.so" ]; then
+    echo "No scxt_lv2.so in $BUNDLE - set BUNDLE=/path/to/ShortcircuitXT.lv2" >&2
     exit 1
 fi
 if [ ! -f "$STATE" ]; then
@@ -43,10 +43,10 @@ if [ ! -f "$STATE" ]; then
     exit 1
 fi
 
-GEN="$BUNDLE/clap2lv2-ttl"
-[ -x "$GEN" ] || GEN="$HERE/ignore/build-lv2/clap2lv2-ttl"
-if [ ! -x "$GEN" ]; then
-    echo "clap2lv2-ttl not found (looked in $BUNDLE and $HERE/ignore/build-lv2)" >&2
+GEN="$BUNDLE/scxt-lv2-ttl"
+[ -x "$GEN" ] || GEN="$(find "$HERE/ignore/build-pi" -name scxt-lv2-ttl -type f -perm -u+x 2>/dev/null | head -n1)"
+if [ -z "$GEN" ] || [ ! -x "$GEN" ]; then
+    echo "scxt-lv2-ttl not found (looked in $BUNDLE and $HERE/ignore/build-pi)" >&2
     exit 1
 fi
 
@@ -64,7 +64,7 @@ echo "State:  $STATE"
 cp "$BUNDLE/manifest.ttl" "$BUNDLE/manifest.ttl.bak"
 [ -n "$TTL" ] && cp "$TTL" "$TTL.bak"
 
-"$GEN" "${ARGS[@]}" "$BUNDLE/scxt.clap" "$BUNDLE" scxt_lv2.so ${MAX_PARAMS:+"$MAX_PARAMS"}
+"$GEN" "${ARGS[@]}" "$BUNDLE/scxt_lv2.so" "$BUNDLE" scxt_lv2.so ${MAX_PARAMS:+"$MAX_PARAMS"}
 
 echo
 echo "Knob names now:"
