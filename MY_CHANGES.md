@@ -22,6 +22,7 @@ Raspberry Pi 5 (aarch64, Debian trixie), used on a pi-Stomp (MOD) and a Zynthian
 | `zynthian/ShortcircuitXT-zyngui.lv2/` | Zynthian widget: knob names and pages follow the loaded preset |
 | `zynthian/scxt_macro_names.py` | older tool: fixed knob names from all Zynthian presets |
 | `MY_CHANGES.md` | this document |
+| `docs/SHORTCIRCUIT_XT_LV2_GUIDE.md` | user guide: what was made, building, installing and using the panel (with `docs/panel.png` and `docs/shortcircuit-xt-audio-flow.png`) |
 
 ### How the LV2 is made
 
