@@ -1,0 +1,8 @@
+@prefix lv2: <http://lv2plug.in/ns/lv2core#> .
+@prefix pset: <http://lv2plug.in/ns/ext/presets#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<Beta_Bass.ttl>
+	lv2:appliesTo <https://github.com/maarthome/shortcircuit-xt#lv2> ;
+	a pset:Preset ;
+	rdfs:seeAlso <Beta_Bass.ttl> .
