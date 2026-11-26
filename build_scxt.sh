@@ -30,6 +30,7 @@
 #
 # Environment variables:
 #   JOBS=n             parallel compile jobs (default: all cores)
+#   VERBOSE=1          show all compiler output instead of the progress line
 #   SWAP_GB=n          size of the temporary swap file (default: 6, 0 = none)
 #   MAX_PARAMS=n       number of macro knobs as LV2 control ports
 #                      (default: 16 = part 1; 256 = all 16 parts)
@@ -47,7 +48,7 @@ set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 ROOT="$PWD"
 
-usage() { sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; }
 
 DO_DEPLOY=0; DO_ZYNTHIAN=0; DO_DEB=0; DEB_ONLY=0; WITH_CLAP=0
 LV2_DIR="${LV2_DIR:-}"
@@ -84,6 +85,55 @@ SWAPFILE="/var/tmp/scxt_build.swap"
 
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Run a ninja build showing one progress line (percentage, steps, time left)
+# instead of all compiler output; the full output goes to $BUILD_LOG.
+# VERBOSE=1 shows the normal output instead.
+BUILD_LOG="$ROOT/ignore/build-pi.log"
+fmt_time() {
+    local sec=$1
+    if [ "$sec" -lt 60 ]; then printf '%ds' "$sec"
+    elif [ "$sec" -lt 3600 ]; then printf '%dm' $((sec / 60))
+    else printf '%dh%02dm' $((sec / 3600)) $(((sec % 3600) / 60)); fi
+}
+progress_filter() {
+    local line done total pct eta first_done=-1 t_first=0 t0=$SECONDS
+    local re='^\[([0-9]+)/([0-9]+)\] '
+    while IFS= read -r line; do
+        [[ $line =~ $re ]] || continue
+        done=${BASH_REMATCH[1]}; total=${BASH_REMATCH[2]}
+        [ "$total" -gt 0 ] || continue
+        if [ "$first_done" -lt 0 ]; then first_done=$done; t_first=$SECONDS; fi
+        pct=$((done * 100 / total))
+        eta="estimating..."
+        if [ $((done - first_done)) -ge 5 ] && [ $SECONDS -gt "$t_first" ]; then
+            eta="about $(fmt_time $(((total - done) * (SECONDS - t_first) / (done - first_done)))) left"
+        fi
+        printf '\r\033[K  Compiling: %3d%%  (%d/%d)  %s, running %s' \
+            "$pct" "$done" "$total" "$eta" "$(fmt_time $((SECONDS - t0)))"
+    done
+    printf '\n'
+}
+build_with_progress() {
+    mkdir -p "$(dirname "$BUILD_LOG")"
+    if [ "${VERBOSE:-0}" = "1" ]; then
+        "$@" 2>&1 | tee "$BUILD_LOG"
+        return "${PIPESTATUS[0]}"
+    fi
+    local start=$SECONDS status
+    set +e
+    NINJA_STATUS="[%f/%t] " "$@" 2>&1 | tee "$BUILD_LOG" | progress_filter
+    status=${PIPESTATUS[0]}
+    set -e
+    if [ "$status" != "0" ]; then
+        echo "Build failed - last lines of $BUILD_LOG:" >&2
+        grep -E "error|Error|FAILED" "$BUILD_LOG" | head -20 >&2 || true
+        echo "..." >&2
+        tail -n 30 "$BUILD_LOG" >&2
+        return "$status"
+    fi
+    echo "  Done in $(( (SECONDS - start) / 60 )) min (full output: $BUILD_LOG)"
+}
 
 if [ "$DO_DEPLOY" = "1" ] && [ -z "${PISTOMP:-}" ]; then
     die "--deploy needs the pi-Stomp address, e.g. PISTOMP=pistomp@pistomp.local ./build_scxt.sh --deploy"
@@ -135,7 +185,7 @@ build() {
     local targets=(scxt_lv2 scxt-lv2-ttl)
     [ "$WITH_CLAP" = "1" ] && targets+=(scxt_clapfirst_clap)
     log "Building ${targets[*]} with $JOBS jobs - the first build takes a long time on a Pi"
-    cmake --build "$BUILD_DIR" --target "${targets[@]}" -j "$JOBS"
+    build_with_progress cmake --build "$BUILD_DIR" --target "${targets[@]}" -j "$JOBS"
 
     local so ttlgen
     so="$(find "$BUILD_DIR" -name scxt_lv2.so -type f | head -n1)"

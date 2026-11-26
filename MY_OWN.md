@@ -50,7 +50,9 @@ JOBS=4 ./build_scxt.sh
 ```
 
 The script installs the build packages, updates the submodules, adds a temporary 6 GB swap file,
-builds and assembles `dist-linux-aarch64/ShortcircuitXT.lv2`. The first build takes hours; later
+builds and assembles `dist-linux-aarch64/ShortcircuitXT.lv2`. While compiling it shows one line
+with the percentage, the step count and an estimate of the time left; the compiler output goes to
+`ignore/build-pi.log` (on an error the script shows the error lines and the end of that log). The first build takes hours; later
 builds only recompile what changed.
 
 ### Options
@@ -66,6 +68,7 @@ builds only recompile what changed.
 | `--instruments DIR` | copy the instruments in DIR (sfz, samples, subfolders) to the pi-Stomp's `~/.local/share/shortcircuit-xt/instruments` (with `--deploy`) or into the `.deb` as `/usr/share/shortcircuit-xt/instruments` (with `--deb`) — next to Surge's `~/.local/share/surge-xt` |
 | `--with-clap` | also build the plain CLAP (`dist-linux-aarch64/Shortcircuit XT.clap`) |
 | `JOBS=n` | parallel compile jobs |
+| `VERBOSE=1` | show all compiler output instead of the progress line (the full output is always in `ignore/build-pi.log`) |
 | `SWAP_GB=n` | temporary swap size (default 6, 0 = none) |
 | `MAX_PARAMS=n` | number of macro control ports (default 16) |
 
