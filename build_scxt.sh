@@ -132,7 +132,8 @@ build_with_progress() {
         tail -n 30 "$BUILD_LOG" >&2
         return "$status"
     fi
-    echo "  Done in $(( (SECONDS - start) / 60 )) min (full output: $BUILD_LOG)"
+    printf '\033[1A\r\033[K  Compiling: 100%%  done\n'
+    echo "  Done in $(fmt_time $((SECONDS - start))) (full output: $BUILD_LOG)"
 }
 
 if [ "$DO_DEPLOY" = "1" ] && [ -z "${PISTOMP:-}" ]; then
@@ -202,6 +203,8 @@ build() {
     strip --strip-unneeded "$BUNDLE/scxt_lv2.so" "$BUNDLE/scxt-lv2-ttl" || true
     "$BUNDLE/scxt-lv2-ttl" "$BUNDLE/scxt_lv2.so" "$BUNDLE" scxt_lv2.so "$MAX_PARAMS"
 
+    # the plain CLAP is only kept with --with-clap (an old copy confuses lv2ls)
+    rm -f "$DIST/Shortcircuit XT.clap"
     if [ "$WITH_CLAP" = "1" ]; then
         local clap
         clap="$(find "$BUILD_DIR" -name 'Shortcircuit XT.clap' -type f | head -n1)"
@@ -210,11 +213,16 @@ build() {
 
     log "Checking the bundle with lv2ls"
     if command -v lv2ls >/dev/null; then
-        if LV2_PATH="$DIST" lv2ls | grep -q 'maarthome/shortcircuit-xt'; then
-            echo "lv2ls finds: $(LV2_PATH="$DIST" lv2ls | grep 'maarthome/shortcircuit-xt')"
+        # look at the new bundle only
+        local check
+        check="$(mktemp -d)"
+        ln -s "$BUNDLE" "$check/$BUNDLE_NAME"
+        if LV2_PATH="$check" lv2ls | grep -q 'maarthome/shortcircuit-xt'; then
+            echo "lv2ls finds: $(LV2_PATH="$check" lv2ls | grep 'maarthome/shortcircuit-xt')"
         else
             echo "WARNING: lv2ls does not list the plugin - check the .ttl files in $BUNDLE" >&2
         fi
+        rm -rf "$check"
     fi
     echo "Control ports: $(grep -c 'lv2:ControlPort' "$BUNDLE/shortcircuit_xt.ttl")"
     du -sh "$BUNDLE"
