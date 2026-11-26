@@ -176,6 +176,7 @@ struct Bridge::Impl
     std::atomic<bool> namesRequest{false}, namesReady{false};
     std::string namesSnap, sentNames;
     float namesForLoaded{-1};
+    int namesTick{0};
     std::atomic<int> descRequest{-1};
     std::atomic<bool> descReady{false};
 
@@ -215,8 +216,42 @@ struct Bridge::Impl
         egShadowTime = now;
         return egShadow;
     }
-    std::string sentModsText, modsText;
+    std::string sentModsText, modsText, partText;
     float loadedCounter{0};
+
+    // part 1: settings, sends, effects (edits build on shadows, like rowShadow)
+    using PartConfig = scxt::engine::Part::PartConfiguration;
+    using SendStorage = scxt::engine::Bus::BusSendStorage;
+    using BusFxStorage = scxt::engine::BusEffectStorage;
+    PartConfig partShadow{};
+    std::chrono::steady_clock::time_point partShadowTime{};
+    SendStorage sendShadow{};
+    std::chrono::steady_clock::time_point sendShadowTime{};
+    struct PfxDesc
+    {
+        int type{-1};
+        int n{0};
+        std::array<scxt::datamodel::pmd, scxt::maxBusEffectParams> m{};
+    };
+    std::array<PfxDesc, scxt::maxEffectsPerPart> pfxSnap{}, pfxDesc{};
+    std::atomic<bool> pfxRequest{false}, pfxReady{false};
+    bool pfxValid{false};
+    std::array<std::string, scxt::maxEffectsPerPart> sentPfxValues;
+    std::array<BusFxStorage, scxt::maxEffectsPerPart> pfxShadow{};
+    std::array<std::chrono::steady_clock::time_point, scxt::maxEffectsPerPart> pfxShadowTime{};
+    // misc (phasors, randoms) and audio (envelope followers) modulators of the group
+    scxt::modulation::MiscSourceStorage miscShadow{};
+    scxt::modulation::AudioSourceStorage audioShadow{};
+    std::chrono::steady_clock::time_point miscShadowTime{}, audioShadowTime{};
+    int miscShadowGroup{-1}, audioShadowGroup{-1};
+    std::string sentMiscText;
+    // macro names, copied on the audio thread with the group names
+    std::string macroSnap, sentMacroNames;
+    // a part save in progress
+    std::string savePath;
+    std::chrono::steady_clock::time_point saveDeadline{};
+    fs::file_time_type saveOldTime{};
+    bool saveExisted{false};
     std::array<float, P_NUM> sent{};
     std::array<bool, P_NUM> sentValid{};
     std::array<float, P_NUM> pending{};
@@ -727,6 +762,366 @@ struct Bridge::Impl
         sentModRows.clear();
     }
 
+    // ---- part 1: settings, sends, effects -----------------------------------
+    scxt::engine::Part *part0()
+    {
+        auto &patch = engine->getPatch();
+        return patch ? patch->getPart(0).get() : nullptr;
+    }
+    PartConfig &currentPartShadow()
+    {
+        auto now = std::chrono::steady_clock::now();
+        if (now - partShadowTime > std::chrono::seconds(2))
+            if (auto *pt = part0())
+                partShadow = pt->configuration;
+        partShadowTime = now;
+        return partShadow;
+    }
+    void sendPartConfig() { send<cmsg::UpdatePartFullConfig>(cmsg::partConfigurationPayload_t{(int16_t)0, partShadow}); }
+    SendStorage &currentSendShadow()
+    {
+        auto now = std::chrono::steady_clock::now();
+        if (now - sendShadowTime > std::chrono::seconds(2))
+            if (auto &patch = engine->getPatch())
+                sendShadow = patch->busses.partBusses[0].busSendStorage;
+        sendShadowTime = now;
+        return sendShadow;
+    }
+    void setSend(int i, float v)
+    {
+        auto &ss = currentSendShadow();
+        ss.sendLevels[i] = std::clamp(v, 0.f, 1.f);
+        send<cmsg::SetBusSendStorage>(cmsg::setBusSendStorage_t{(int)scxt::engine::BusAddress::PART_0, ss});
+    }
+
+    void sendPfxTypes()
+    {
+        std::string t;
+        for (int i = 0; i <= (int)scxt::engine::LastAvailableBusEffect; ++i)
+            t += (i ? "~" : "") + std::to_string(i) + "^" +
+                 clean(i == 0 ? std::string("none") : scxt::engine::getBusEffectDisplayName((scxt::engine::AvailableBusEffects)i));
+        queueString(P_PFX_TYPES, t);
+    }
+    static const char *pmdType(const scxt::datamodel::pmd &m)
+    {
+        using PMD = sst::basic_blocks::params::ParamMetaData;
+        return m.type == PMD::NONE ? "N" : m.type == PMD::INT ? "I" : m.type == PMD::BOOL ? "B" : "F";
+    }
+    // "<slot>|<type>|<name^min^max^default^F|I|B|N^choice^choice...>~..."
+    std::string pfxDescText(int s)
+    {
+        const auto &d = pfxDesc[s];
+        std::string t = std::to_string(s) + "|" + std::to_string(d.type) + "|";
+        for (int i = 0; i < d.n; ++i)
+        {
+            const auto &m = d.m[i];
+            t += (i ? "~" : "") + clean(m.name) + "^" + num(m.minVal) + "^" + num(m.maxVal) + "^" +
+                 num(m.defaultVal) + "^" + pmdType(m);
+            if (m.type == sst::basic_blocks::params::ParamMetaData::INT)
+            {
+                int lo = (int)std::round(m.minVal), hi = (int)std::round(m.maxVal);
+                for (int v = lo; v <= hi && v - lo < 64; ++v)
+                    t += "^" + clean(m.valueToString((float)v).value_or(std::to_string(v)));
+            }
+        }
+        return t;
+    }
+    // "<slot>|<type>|<active>|<sync>|<values ~>|<texts ~>"
+    std::string pfxValuesText(int s, const BusFxStorage &st)
+    {
+        const auto &d = pfxDesc[s];
+        std::string t = std::to_string(s) + "|" + std::to_string((int)st.type) + "|" +
+                        (st.isActive ? "1" : "0") + "|" + (st.isTemposync ? "1" : "0") + "|";
+        for (int i = 0; i < d.n; ++i)
+            t += (i ? "~" : "") + num(st.params[i]);
+        t += "|";
+        auto fs = sst::basic_blocks::params::ParamMetaData::FeatureState().withTemposync(st.isTemposync);
+        for (int i = 0; i < d.n; ++i)
+            t += (i ? "~" : "") + clean(d.m[i].valueToString(st.params[i], fs).value_or(num(st.params[i])));
+        return t;
+    }
+    void readPfx(scxt::engine::Part &pt, bool all)
+    {
+        bool need = !pfxValid || all;
+        for (int s = 0; s < (int)scxt::maxEffectsPerPart && !need; ++s)
+            need = (int)pt.partEffectStorage[s].type != pfxDesc[s].type;
+        if (need)
+        {
+            pfxValid = false;
+            if (!pfxRequest.load() && !pfxReady.load())
+            {
+                pfxRequest = true;
+                return;
+            }
+            if (!pfxReady.load())
+                return;
+            pfxDesc = pfxSnap;
+            pfxReady = false;
+            pfxValid = true;
+            for (int s = 0; s < (int)scxt::maxEffectsPerPart; ++s)
+            {
+                if ((int)pt.partEffectStorage[s].type != pfxDesc[s].type)
+                    pfxValid = false;
+                sendChunked(P_PFX_DESC, std::to_string(s), pfxDescText(s));
+                sentPfxValues[s].clear();
+            }
+        }
+        for (int s = 0; s < (int)scxt::maxEffectsPerPart; ++s)
+        {
+            if ((int)pt.partEffectStorage[s].type != pfxDesc[s].type)
+                continue;
+            auto t = pfxValuesText(s, pt.partEffectStorage[s]);
+            if (t != sentPfxValues[s])
+            {
+                sentPfxValues[s] = t;
+                sendChunked(P_PFX_VALUES, std::to_string(s), t);
+            }
+        }
+    }
+    void applyPfxEdit(const std::string &t)
+    {
+        int s = -1, idx = 0;
+        char kind = 0;
+        float v = 0;
+        if (sscanf(t.c_str(), "%d,%c,%d,%f", &s, &kind, &idx, &v) != 4 || s < 0 ||
+            s >= (int)scxt::maxEffectsPerPart)
+            return;
+        auto *pt = part0();
+        if (!pt)
+            return;
+        auto now = std::chrono::steady_clock::now();
+        if (kind == 't')
+        {
+            int ty = (int)std::lround(v);
+            if (ty < 0 || ty > (int)scxt::engine::LastAvailableBusEffect)
+                return;
+            send<cmsg::SetBusEffectToType>(cmsg::setBusEffectToType_t{-1, 0, s, ty});
+            pfxShadowTime[s] = {}; // the new effect sets its own defaults
+            return;
+        }
+        if (now - pfxShadowTime[s] > std::chrono::seconds(2))
+            pfxShadow[s] = pt->partEffectStorage[s];
+        pfxShadowTime[s] = now;
+        auto &st = pfxShadow[s];
+        switch (kind)
+        {
+        case 'a': st.isActive = v > 0.5f; break;
+        case 'y': st.isTemposync = v > 0.5f; break;
+        case 'p':
+            if (idx < 0 || idx >= (int)scxt::maxBusEffectParams)
+                return;
+            st.params[idx] = v;
+            break;
+        default: return;
+        }
+        send<cmsg::SetBusEffectStorage>(cmsg::setBusEffectStorage_t{-1, 0, s, st});
+    }
+
+    // ---- group management ------------------------------------------------
+    void applyGroupCmd(const std::string &t)
+    {
+        // "r,<group>,<name>" "d,<group>" "m,<group>,<0|1>" "s,<group>,<0|1>"
+        if (t.size() < 3 || t[1] != ',')
+            return;
+        char k = t[0];
+        auto rest = t.substr(2);
+        auto c = rest.find(',');
+        int g = atoi(rest.substr(0, c).c_str());
+        std::string arg = c == std::string::npos ? "" : rest.substr(c + 1);
+        auto *pt = part0();
+        if (!pt || g < 0 || g >= (int)pt->getGroups().size())
+            return;
+        using ZA = scxt::selection::SelectionManager::ZoneAddress;
+        switch (k)
+        {
+        case 'r':
+            if (!arg.empty())
+                send<cmsg::RenameGroup>(cmsg::renameGroupZonePayload_t{ZA(0, g, -1), arg.substr(0, 120)});
+            break;
+        case 'd':
+            send<cmsg::DeleteGroup>(ZA(0, g, -1));
+            if (!allGroups && group >= g && group > 0)
+                group -= 1;
+            holdReadback = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+            break;
+        case 'm':
+        case 's':
+            send<cmsg::MuteOrSoloGroup>(cmsg::muteOrSoloGroup_t{0, g, k == 's', arg == "1", 0});
+            break;
+        default:
+            return;
+        }
+        structureChanged = true;
+        wantAll = true;
+    }
+
+    // ---- save part 1 as .scp ---------------------------------------------
+    void savePart(const std::string &t)
+    {
+        // "<0|1>,<name or path>": 1 = with its samples in the file
+        if (t.size() < 3 || t[1] != ',')
+            return;
+        bool monolith = t[0] == '1';
+        std::string name = t.substr(2);
+        while (!name.empty() && (name.back() == ' ' || name.back() == '/'))
+            name.pop_back();
+        if (name.empty())
+        {
+            queueString(P_SAVED, "error|no name");
+            return;
+        }
+        fs::path pth = name[0] == '/' ? fs::path(name) : fs::path(defaultDir) / name;
+        if (pth.extension() != ".scp")
+            pth += ".scp";
+        std::error_code ec;
+        fs::create_directories(pth.parent_path(), ec);
+        savePath = pth.string();
+        saveExisted = fs::exists(pth);
+        saveOldTime = saveExisted ? fs::last_write_time(pth, ec) : fs::file_time_type{};
+        saveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        send<cmsg::SavePart>(cmsg::savePartPayload_t{
+            savePath, 0,
+            (int)(monolith ? scxt::patch_io::SaveStyles::AS_MONOLITH : scxt::patch_io::SaveStyles::NO_SAMPLES)});
+        fprintf(stderr, "[scxt-lv2] save part 1 to %s\n", savePath.c_str());
+    }
+    void checkSave()
+    {
+        if (savePath.empty())
+            return;
+        std::error_code ec;
+        bool done = fs::exists(savePath) && fs::file_size(savePath, ec) > 0 &&
+                    (!saveExisted || fs::last_write_time(savePath, ec) != saveOldTime);
+        if (done)
+        {
+            queueString(P_SAVED, "ok|" + savePath);
+            if (fs::path(savePath).parent_path() == fs::path(curDir))
+                sendListing(curDir);
+            savePath.clear();
+        }
+        else if (std::chrono::steady_clock::now() > saveDeadline)
+        {
+            queueString(P_SAVED, "error|could not write " + savePath);
+            savePath.clear();
+        }
+    }
+
+    // ---- misc / audio modulators of the group ------------------------------
+    // "P|<sync^division^direction^phase^numerator^denominator>~...|R|<style>~...|
+    //  F|<attack^release^gain^link^source^attack text^release text^gain text>~..."
+    std::string miscText(const scxt::engine::Group &g)
+    {
+        const auto &ms = g.miscSourceStorage;
+        std::string t = "P|";
+        for (int i = 0; i < (int)scxt::phasorsPerGroupOrZone; ++i)
+        {
+            const auto &p = ms.phasors[i];
+            t += (i ? "~" : "") + std::to_string((int)p.syncMode) + "^" + std::to_string((int)p.division) +
+                 "^" + std::to_string((int)p.direction) + "^" + num(p.phase) + "^" +
+                 std::to_string(p.numerator) + "^" + std::to_string(p.denominator);
+        }
+        t += "|R|";
+        for (int i = 0; i < (int)scxt::randomsPerGroupOrZone; ++i)
+            t += (i ? "~" : "") + std::to_string((int)ms.randoms[i].style);
+        t += "|F|";
+        scxt::modulation::AudioSourceStorage as = g.audioSourceStorage;
+        using FS = sst::basic_blocks::params::ParamMetaData::FeatureState;
+        auto txt = [&](float &v) {
+            return clean(scxt::datamodel::describeValue(as, v).valueToString(v, FS()).value_or(num(v)));
+        };
+        for (int i = 0; i < (int)scxt::envFollowersPerGroupOrZone; ++i)
+        {
+            auto &f = as.followers[i];
+            t += (i ? "~" : "") + num(f.attack) + "^" + num(f.release) + "^" + num(f.gain) + "^" +
+                 (f.stereoLink ? "1" : "0") + "^" + std::to_string((int)f.followSource) + "^" +
+                 txt(f.attack) + "^" + txt(f.release) + "^" + txt(f.gain);
+        }
+        return t;
+    }
+    void applyMiscEdit(const std::string &t)
+    {
+        // "<p|r|f>,<index>,<field>,<value>"
+        char k = 0, f = 0;
+        int i = 0;
+        float v = 0;
+        if (sscanf(t.c_str(), "%c,%d,%c,%f", &k, &i, &f, &v) != 4 || i < 0)
+            return;
+        auto *pt = part0();
+        if (!pt || group >= (int)pt->getGroups().size())
+            return;
+        auto &g = pt->getGroup(group);
+        auto now = std::chrono::steady_clock::now();
+        int iv = (int)std::lround(v);
+        selectGroup();
+        if (k == 'f')
+        {
+            if (i >= (int)scxt::envFollowersPerGroupOrZone)
+                return;
+            if (audioShadowGroup != group || now - audioShadowTime > std::chrono::seconds(2))
+                audioShadow = g->audioSourceStorage;
+            audioShadowGroup = group;
+            audioShadowTime = now;
+            auto &e = audioShadow.followers[i];
+            using ES = scxt::modulation::modulators::EnvFollowerStorage;
+            switch (f)
+            {
+            case 'a': e.attack = std::clamp(v, 0.000001f, 0.1f); break;
+            case 'r': e.release = std::clamp(v, 0.01f, 0.5f); break;
+            case 'g': e.gain = std::clamp(v, -36.f, 36.f); break;
+            case 'l': e.stereoLink = iv > 0; break;
+            case 's': e.followSource = iv ? ES::Source::POST_PROC : ES::Source::PRE_PROC; break;
+            default: return;
+            }
+            send<cmsg::UpdateAudiomodStorageForSelectedGroupOrZone>(cmsg::gzAudioModStorageUpdate_t{false, audioShadow});
+            return;
+        }
+        if (miscShadowGroup != group || now - miscShadowTime > std::chrono::seconds(2))
+            miscShadow = g->miscSourceStorage;
+        miscShadowGroup = group;
+        miscShadowTime = now;
+        if (k == 'p')
+        {
+            if (i >= (int)scxt::phasorsPerGroupOrZone)
+                return;
+            using PS = scxt::modulation::modulators::PhasorStorage;
+            auto &p = miscShadow.phasors[i];
+            switch (f)
+            {
+            case 's': p.syncMode = iv ? PS::SyncMode::VOICEPOS : PS::SyncMode::SONGPOS; break;
+            case 'd': p.division = (PS::Division)std::clamp(iv, 0, 3); break;
+            case 'r': p.direction = iv ? PS::Direction::DESCENDING : PS::Direction::ASCENDING; break;
+            case 'h': p.phase = std::clamp(v, 0.f, 1.f); break;
+            case 'n': p.numerator = std::clamp(iv, 1, 64); break;
+            case 'm': p.denominator = std::clamp(iv, 1, 64); break;
+            default: return;
+            }
+        }
+        else if (k == 'r')
+        {
+            if (i >= (int)scxt::randomsPerGroupOrZone || f != 's')
+                return;
+            miscShadow.randoms[i].style = (scxt::modulation::modulators::RandomStorage::Style)std::clamp(iv, 0, 6);
+        }
+        else
+            return;
+        send<cmsg::UpdateMiscmodStorageForSelectedGroupOrZone>(cmsg::gzMiscStorageUpdate_t{false, miscShadow});
+    }
+
+    // ---- macro names -------------------------------------------------------
+    void applyMacroEdit(const std::string &t)
+    {
+        auto c = t.find(',');
+        if (c == std::string::npos)
+            return;
+        int i = atoi(t.substr(0, c).c_str());
+        auto *pt = part0();
+        if (!pt || i < 0 || i >= (int)scxt::macrosPerPart)
+            return;
+        scxt::engine::Macro m = pt->macros[i];
+        m.name = t.substr(c + 1, 60);
+        send<cmsg::SetMacroFullState>(cmsg::macroFullState_t{(int16_t)0, (int16_t)i, m});
+        namesRequest = true; // read the names again
+    }
+
     // ---- file browser ---------------------------------------------------
     void initDirs()
     {
@@ -946,6 +1341,21 @@ struct Bridge::Impl
         case P_MOD_EDIT:
             applyModEdit(t);
             break;
+        case P_PFX_EDIT:
+            applyPfxEdit(t);
+            break;
+        case P_GROUP_CMD:
+            applyGroupCmd(t);
+            break;
+        case P_SAVE_PART:
+            savePart(t);
+            break;
+        case P_MISC_EDIT:
+            applyMiscEdit(t);
+            break;
+        case P_MACRO_EDIT:
+            applyMacroEdit(t);
+            break;
         case P_FOLDER_REMOVE:
             favourites.erase(std::remove(favourites.begin(), favourites.end(), t), favourites.end());
             saveConfig();
@@ -979,6 +1389,15 @@ struct Bridge::Impl
             lfoIndex = std::clamp(iv, 0, (int)scxt::lfosPerGroup - 1);
             wantAll = true;
             return;
+        case P_PART_VOLUME: currentPartShadow().level = std::clamp(v, 0.f, 1.f); sendPartConfig(); return;
+        case P_PART_PAN: currentPartShadow().pan = std::clamp(v, -1.f, 1.f); sendPartConfig(); return;
+        case P_PART_TUNING: currentPartShadow().tuning = std::clamp(v, -36.f, 36.f); sendPartConfig(); return;
+        case P_PART_TRANSPOSE: currentPartShadow().transpose = std::clamp(iv, -36, 36); sendPartConfig(); return;
+        case P_PART_CHANNEL: currentPartShadow().channel = (int16_t)std::clamp(iv, -1, 15); sendPartConfig(); return;
+        case P_PART_POLY: currentPartShadow().polyLimitVoices = std::clamp(iv, 0, 256); sendPartConfig(); return;
+        case P_PART_MUTE: currentPartShadow().mute = iv > 0; sendPartConfig(); return;
+        case P_PART_SOLO: currentPartShadow().solo = iv > 0; sendPartConfig(); return;
+        case P_SEND1: case P_SEND2: case P_SEND3: case P_SEND4: setSend((int)(p - P_SEND1), v); return;
         default:
             break;
         }
@@ -1066,8 +1485,31 @@ struct Bridge::Impl
         vals[P_GROUP] = allGroups ? -1.f : (float)group;
         vals[P_LOAD_MODE] = (float)loadMode;
         vals[P_LOADED] = loadedCounter;
+        {
+            const auto &pc = part->configuration;
+            vals[P_PART_VOLUME] = pc.level;
+            vals[P_PART_PAN] = pc.pan;
+            vals[P_PART_TUNING] = pc.tuning;
+            vals[P_PART_TRANSPOSE] = (float)pc.transpose;
+            vals[P_PART_CHANNEL] = (float)pc.channel;
+            vals[P_PART_POLY] = (float)pc.polyLimitVoices;
+            vals[P_PART_MUTE] = pc.mute ? 1.f : 0.f;
+            vals[P_PART_SOLO] = pc.solo ? 1.f : 0.f;
+            const auto &ss = patch->busses.partBusses[0].busSendStorage;
+            for (int i = 0; i < 4; ++i)
+                vals[P_SEND1 + i] = ss.sendLevels[i];
+            using FS = sst::basic_blocks::params::ParamMetaData::FeatureState;
+            PartConfig c = pc;
+            auto txt = [&](float &v) {
+                return clean(scxt::datamodel::describeValue(c, v).valueToString(v, FS()).value_or(num(v)));
+            };
+            partText = txt(c.level) + "~" + txt(c.pan) + "~" + txt(c.tuning);
+        }
         if (n == 0)
+        {
+            modsText = "P|" + partText;
             return true;
+        }
         auto &g = part->getGroup(group);
         if (!g)
             return true;
@@ -1144,6 +1586,7 @@ struct Bridge::Impl
                                   &m.envLfoStorage.decay, &m.envLfoStorage.sustain, &m.envLfoStorage.release};
             for (int i = 0; i < 6; ++i)
                 t += (i ? "~" : "") + txt(scxt::datamodel::describeValue(m, *vv[i]), *vv[i], m.temposync && i != 4);
+            t += "|P|" + partText;
             modsText = t;
         }
         vals[P_EG_DLY] = eg.dly;
@@ -1173,19 +1616,36 @@ struct Bridge::Impl
             if (auto &part = patch->getPart(0))
                 if (group < (int)part->getGroups().size())
                     if (auto &g = part->getGroup(group))
+                    {
                         readFx(*g, all);
+                        auto mt = miscText(*g);
+                        if (all || mt != sentMiscText)
+                        {
+                            sentMiscText = mt;
+                            queueString(P_MISC_TEXT, mt);
+                        }
+                    }
+        if (auto *pt = part0())
+            readPfx(*pt, all);
+        checkSave();
         // names: ask the audio thread after loads / structure changes, send when they changed
         if (namesReady.load())
         {
             std::string n = namesSnap;
+            std::string mn = macroSnap;
             namesReady = false;
+            if (all || mn != sentMacroNames)
+            {
+                sentMacroNames = mn;
+                queueString(P_MACRO_NAMES, mn);
+            }
             if (all || n != sentNames)
             {
                 sentNames = n;
                 sendChunked(P_NAMES, "N", n);
             }
         }
-        else if ((all || vals[P_LOADED] != namesForLoaded) && !namesRequest.load())
+        else if ((all || vals[P_LOADED] != namesForLoaded || ++namesTick % 5 == 0) && !namesRequest.load())
         {
             namesForLoaded = vals[P_LOADED];
             if (all)
@@ -1252,7 +1712,9 @@ struct Bridge::Impl
                 sendFolders();
                 sendListing(curDir);
                 sendFxTypes();
+                sendPfxTypes();
                 descValid = false; // and every slot again
+                pfxValid = false;
             }
             if (!order.empty())
                 std::this_thread::sleep_for(std::chrono::milliseconds(30)); // let it apply
@@ -1329,7 +1791,8 @@ void Bridge::audioTick()
             bool firstG = true;
             for (auto &g : part->getGroups())
             {
-                t += (firstG ? "" : "~") + Impl::clean(g->getName()) + "^" + std::to_string(g->getZones().size());
+                t += (firstG ? "" : "~") + Impl::clean(g->getName()) + "^" + std::to_string(g->getZones().size()) +
+                     "^" + (g->outputInfo.muted ? "m" : "") + (g->outputInfo.soloed ? "s" : "");
                 firstG = false;
                 int k = 0;
                 for (auto &z : g->getZones())
@@ -1341,8 +1804,34 @@ void Bridge::audioTick()
             }
         }
         impl->namesSnap = t;
+        std::string mn;
+        if (part)
+            for (int i = 0; i < (int)scxt::macrosPerPart; ++i)
+                mn += (i ? "~" : "") + Impl::clean(part->macros[i].name);
+        impl->macroSnap = mn;
         impl->namesRequest.store(false, std::memory_order_release);
         impl->namesReady.store(true, std::memory_order_release);
+    }
+    if (impl->pfxRequest.load(std::memory_order_acquire) && !impl->pfxReady.load(std::memory_order_acquire))
+    {
+        auto &patch = impl->engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        for (int s = 0; s < (int)scxt::maxEffectsPerPart; ++s)
+        {
+            auto &d = impl->pfxSnap[s];
+            d = {};
+            if (!part)
+                continue;
+            d.type = (int)part->partEffectStorage[s].type;
+            if (auto &fx = part->partEffects[s])
+            {
+                d.n = std::min(fx->numParams(), (int)scxt::maxBusEffectParams);
+                for (int i = 0; i < d.n; ++i)
+                    d.m[i] = fx->paramAt(i);
+            }
+        }
+        impl->pfxRequest.store(false, std::memory_order_release);
+        impl->pfxReady.store(true, std::memory_order_release);
     }
     auto g = impl->descRequest.load(std::memory_order_acquire);
     if (g < 0 || impl->descReady.load(std::memory_order_acquire))

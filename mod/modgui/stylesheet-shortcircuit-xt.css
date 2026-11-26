@@ -1,5 +1,5 @@
 /* Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, My_Changes) */
-.scxt { width: 1650px; height: 900px; background: #1e2227; color: #d6dae0;
+.scxt { width: 1650px; height: 1010px; background: #1e2227; color: #d6dae0;
   font-family: "Inter", "Helvetica Neue", Arial, sans-serif; border-radius: 6px; position: relative; user-select: none; }
 .scxt .scx-root { position: absolute; inset: 0; padding: 8px 14px 10px; box-sizing: border-box; z-index: 25;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
@@ -236,13 +236,74 @@
 .scxt .scx-matrix { width: 600px; flex: none; display: flex; flex-direction: column; }
 .scxt .scx-fx { flex: 1; min-width: 0; }
 .scxt .scx-fx-slot { min-height: 0; height: 236px; }
-.scxt .scx-macros { width: 560px; flex: none; display: flex; flex-direction: column; }
-.scxt .scx-macros .scx-grid { flex: 1; align-content: space-evenly; }
-.scxt .scx-macros .scx-knob { width: 66px; }
-.scxt .scx-macros .scx-knob svg { width: 42px; height: 42px; }
-.scxt .scx-macros .scx-knob .scx-lbl { width: 62px; max-width: 62px; font-size: 11px; }
 .scxt .scx-mods .scx-eg { width: 400px; }
 .scxt .scx-mods .scx-matrix { width: 540px; }
 .scxt .scx-mods .scx-lfo-left { width: 210px; }
 .scxt .scx-mods .scx-lfo-shape select, .scxt .scx-mods .scx-lfo-svg { width: 210px; }
 .scxt .scx-mods .scx-lfo-body { gap: 8px; }
+
+/* macros: one strip of 16 along the bottom */
+.scxt .scx-macros { flex: none; }
+.scxt .scx-mstrip { display: flex; justify-content: space-between; }
+.scxt .scx-macros .scx-knob { width: 96px; }
+.scxt .scx-macros .scx-knob svg { width: 40px; height: 40px; }
+.scxt .scx-macros .scx-knob .scx-lbl.scx-mname { background: #1d2126; border-radius: 3px; padding: 2px 0; width: 92px; max-width: 92px; text-align: center; font-size: 11px; cursor: text; }
+.scxt .scx-macros .scx-knob .scx-lbl.scx-mname:hover { color: #f0a83a; }
+
+/* part 1 card (top right) */
+.scxt .scx-part { width: 560px; flex: none; display: flex; flex-direction: column; }
+.scxt .scx-part h4 .scx-save { order: 3; margin-left: 0; height: 22px; font-size: 11px; color: #f0a83a; }
+.scxt .scx-part h4::after { order: 2; }
+.scxt .scx-tabs button.dim { color: #6d7580; }
+.scxt .scx-tabs button.dim.on { color: #15181c; }
+.scxt .scx-ppage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.scxt .scx-prow { display: flex; align-items: flex-start; gap: 4px; }
+.scxt .scx-pcol { display: flex; flex-direction: column; gap: 6px; }
+.scxt .scx-pcol .scx-sel { flex-direction: row; gap: 6px; }
+.scxt .scx-pcol .scx-sel > div { order: -1; width: 44px; text-align: right; }
+.scxt .scx-pcol .scx-sel select { width: 104px; }
+.scxt .scx-pms { margin-left: 8px; }
+.scxt .scx-pms .scx-tgl { width: 64px; height: 28px; }
+.scxt .scx-sends { align-items: center; border-top: 1px solid #343a42; padding-top: 4px; }
+.scxt .scx-sends-lbl { font-size: 10px; color: #8a929c; text-transform: uppercase; letter-spacing: .08em; width: 60px; }
+.scxt .scx-sends .scx-knob svg { width: 38px; height: 38px; }
+.scxt .scx-pfx.off .scx-pfx-body { opacity: .4; }
+.scxt .scx-pfx .scx-fx-head .scx-fx-type { max-width: 300px; }
+.scxt .scx-pfx .scx-fx-head .scx-tgl { height: 24px; }
+.scxt .scx-pfx-knobs { display: grid; grid-template-columns: repeat(6, 1fr); row-gap: 2px; }
+.scxt .scx-pfx-knobs .scx-knob { width: auto; min-width: 0; }
+.scxt .scx-pfx-knobs .scx-knob svg { width: 34px; height: 34px; }
+.scxt .scx-pfx-knobs .scx-knob .scx-lbl { font-size: 10px; max-width: 84px; }
+.scxt .scx-pfx-knobs .scx-knob .scx-val { font-size: 9px; max-width: 84px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.scxt .scx-pfx .scx-fx-none { padding-top: 50px; }
+
+/* loaded list: mute / solo / rename / delete */
+.scxt .scx-ld-row { align-items: center; }
+.scxt .scx-ld-row.muted .scx-ld-name, .scxt .scx-ld-row.muted .scx-ld-zones { color: #5d646d; text-decoration: line-through; }
+.scxt .scx-ld-zones { flex: 1; min-width: 0; }
+.scxt .scx-ld-tools { display: flex; gap: 3px; flex: none; }
+.scxt .scx-ld-tools button { height: 18px; min-width: 20px; padding: 0 4px; font-size: 10px; line-height: 16px; }
+.scxt .scx-ld-tools button.scx-del:hover { background: #a0392f; border-color: #a0392f; color: #fff; }
+
+/* text dialog */
+.scxt .scx-dlg-input { width: 100%; box-sizing: border-box; height: 32px; font-size: 15px; background: #1d2126; color: #f0d9b0; border: 1px solid #3f464f; border-radius: 4px; padding: 0 8px; margin-bottom: 10px; }
+.scxt .scx-dlg-extra { font-size: 12px; color: #c3c8cf; margin-bottom: 12px; }
+.scxt .scx-dlg-chk input { vertical-align: middle; }
+
+/* GLFO card: MISC and AUDIO */
+.scxt .scx-tabrow { display: flex; gap: 8px; }
+.scxt .scx-tabs.dim button.on { background: #2a2f36; color: #f0a83a; border-color: #f0a83a; }
+.scxt .scx-misc { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 3px; }
+.scxt .scx-misc-h { font-size: 10px; color: #8a929c; text-transform: uppercase; letter-spacing: .08em; margin-top: 2px; }
+.scxt .scx-misc-row { display: flex; align-items: center; gap: 6px; }
+.scxt .scx-misc-name { width: 64px; font-size: 12px; color: #c3c8cf; }
+.scxt .scx-misc-slash { color: #8a929c; }
+.scxt .scx-mini { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8a929c; }
+.scxt .scx-mini select { height: 24px; font-size: 11px; color: #f0a83a; background: #1d2126; padding: 0 3px; }
+.scxt .scx-misc-row .scx-hbar { width: 120px; }
+.scxt .scx-misc-rnd { flex-wrap: wrap; gap: 10px; }
+.scxt .scx-audio { flex-direction: row; flex-wrap: wrap; gap: 14px; }
+.scxt .scx-fol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.scxt .scx-fol-knobs { display: flex; gap: 4px; }
+.scxt .scx-fol-opts { display: flex; align-items: center; gap: 10px; }
+.scxt .scx-audio .scx-lfo-note { width: 100%; text-align: left; }

@@ -43,9 +43,9 @@ The plugin has:
 
 ### The MOD panel (pi-Stomp)
 
-The bundle includes a panel for MOD-UI. It is wide and low (1650 × 900) to suit a wide screen,
-with three rows: group settings | browser | macros, then group EG | group LFO | mod matrix,
-then group effects | routing. The parts:
+The bundle includes a panel for MOD-UI. It is wide and low (1650 × 1010) to suit a wide screen,
+with three rows: group settings | browser | part 1, then group EG | group LFO (+ MISC, AUDIO) |
+mod matrix, then group effects | routing, and the 16 macros as one strip along the bottom. The parts:
 
 - **Group selector** (◀ list ▶): **All groups** (the default: every edit goes to all groups of
   part 1, like a multi-selection in Shortcircuit; the panel shows group 1's values) or one
@@ -64,7 +64,19 @@ then group effects | routing. The parts:
   wave's name; an instrument takes the group's place), "Replace part 1" or "Cancel". The last folder and the saved
   folders are kept in `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp.
   Below it, **Loaded in part 1**: each group with its name and its samples (zones); click
-  one to edit that group.
+  one to edit that group. Each row has **M** (mute), **S** (solo), **✎** (rename) and **✕**
+  (delete, asks first).
+- **Part 1** (top right), with tabs:
+  - **Settings:** volume, pan, tuning, transpose, MIDI channel (omni or 1–16), voices (no
+    limit or 1–256), mute, solo, and the **sends** to aux 1–4 (Shortcircuit's mixer page).
+  - **FX 1–4:** part 1's own effects (the mixer page's part effects): on/off, type (reverb 1/2,
+    flanger, phaser, dual delay, treemonster, nimbus, rotary speaker, floaty delay, bonsai),
+    tempo sync and the effect's controls with Shortcircuit's value texts. The tab shows the
+    effect's name.
+  - **Save .scp:** saves part 1 with all your edits as a Shortcircuit part in the Instruments
+    folder (or a full path you type), so it loads back exactly. Normally the file refers to the
+    samples where they are; tick "put the samples in the file too" for one file that can be
+    moved anywhere.
 - **Routing** (as in Shortcircuit): S1 S2 S3 P1 P2 P3 BYP with a drawing of the 4 effect
   blocks (their mix as a bar, grey when empty or off), Vel (velocity sensitivity), Volume,
   Pan, output (Part Output, Main, Bus 1–16, Aux 1–4) and HQ (oversampling off / auto / on).
@@ -76,6 +88,10 @@ then group effects | routing. The parts:
   a picture, UNI, ENV (delay/attack/release envelope, sliders D A R), Rate, Phase, Deform,
   Angle, tempo sync and the trigger (keytrig, songpos, random, release, oneshot). The ENV shape
   shows its DAHDSR and loop instead; step sequences are edited in Shortcircuit's own editor.
+  Next to the GLFO tabs: **MISC** (phasors A–D: voice or song sync, rate as n/m, note /
+  triplet / dotted / x BPM, up or down, phase; random sources A–D: unipolar, bipolar, normal,
+  half-normal, boolean +/−, ternary) and **AUDIO** (envelope followers A and B: attack,
+  release, gain, follow pre- or post-effects, stereo link). These are mod matrix sources.
 - **Group effects FX1–FX4:** per slot an on/off button and the effect type (Shortcircuit's own
   list, grouped: filters, delay, distortion, EQ, modulation, reverb, generators, ...). Below it
   that effect's own controls with their names, ranges and value texts from Shortcircuit
@@ -85,7 +101,8 @@ then group effects | routing. The parts:
   depth (drag left/right, Shift for fine, double-click for 0). The lists are Shortcircuit's own
   (LFOs, EGs, MIDI, macros, random, ... and every effect parameter as target, shown as
   "P1 Fast SVF › Cutoff").
-- **Macros 1–16** (the control ports, also on the pi-Stomp display and knobs).
+- **Macros 1–16**, one strip along the bottom (the control ports, also on the pi-Stomp display
+  and knobs). Click a macro's name to rename it; the name is saved with the part.
 
 How it works: the panel sets LV2 patch parameters (`scxt_params.h`). The plugin hands them to a
 worker thread (`scxt_bridge.cpp`) that sends the same engine messages as Shortcircuit XT's own
@@ -99,8 +116,7 @@ The plugin lists the folders itself (the listing goes to the panel in pieces of 
 characters, because mod-host passes at most about 500 per message) and loads files by their full
 path, so new files on the pi-Stomp or a USB stick show up straight away.
 
-Still to come: the MISC and AUDIO modulators; selecting files with the pi-Stomp's
-own display and buttons.
+Still to come: selecting files with the pi-Stomp's own display and buttons.
 
 ## Building on the dev Pi 5
 

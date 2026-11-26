@@ -508,12 +508,25 @@ function (event, funcs) {
         var card = el('div', 'scx-card scx-lfo', parent);
         var h4 = el('h4', '', card, '');
         d.lfoTitle = el('span', '', h4, 'Group LFO 1');
-        bind(d, U('lfo_temposync'), makeToggle(d, h4, {uri: U('lfo_temposync'), label: '\u2669 Sync', title: 'Tempo sync the rate', cls: 'scx-h4btn'}));
-        var tabs = makeSegment(d, card, {uri: U('lfo_index'), cls: 'scx-tabs', def: 0, options: range(0, 3, function (i) { return 'GLFO ' + (i + 1); })});
-        tabs.onSet = function (v) { d.lfoTitle.textContent = 'Group LFO ' + (v + 1); };
+        d.lfoSync = bind(d, U('lfo_temposync'), makeToggle(d, h4, {uri: U('lfo_temposync'), label: '\u2669 Sync', title: 'Tempo sync the rate', cls: 'scx-h4btn'}));
+        var tabrow = el('div', 'scx-tabrow', card);
+        var tabs = makeSegment(d, tabrow, {uri: U('lfo_index'), cls: 'scx-tabs', def: 0, options: range(0, 3, function (i) { return 'GLFO ' + (i + 1); })});
+        tabs.onSet = function (v) { if (d.modView === 'lfo' || !d.miscPage) d.lfoTitle.textContent = 'Group LFO ' + (v + 1); };
+        // a click on the GLFO tab that is already selected also goes back from MISC / AUDIO
+        tabs.btns.forEach(function (b) { b.addEventListener('click', function () { if (d.modView !== 'lfo') showModView(d, 'lfo'); }); });
         bind(d, tabs.uri, tabs);
+        d.lfoTabs = tabs;
+        var mseg = el('div', 'scx-seg scx-tabs', tabrow);
+        d.miscBtn = el('button', '', mseg, 'MISC');
+        d.audioBtn = el('button', '', mseg, 'AUDIO');
+        d.miscBtn.title = 'Phasors and random sources'; d.audioBtn.title = 'Envelope followers';
+        [d.miscBtn, d.audioBtn].forEach(function (b, k) {
+            b.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            b.addEventListener('click', function (e) { e.stopPropagation(); showModView(d, k ? 'audio' : 'misc'); });
+        });
+        d.modView = 'lfo';
         d.lfoVals = {shape: 1};
-        var body = el('div', 'scx-lfo-body', card);
+        var body = d.lfoBody = el('div', 'scx-lfo-body', card);
         var left = el('div', 'scx-lfo-left', body);
         var shape = makeSelect(d, left, {uri: U('lfo_shape'), label: '', min: 0, max: 8, def: 1, options: LFO_SHAPES});
         shape.el.classList.add('scx-lfo-shape');
@@ -567,6 +580,7 @@ function (event, funcs) {
             d.lfoTextCtl[4 + i] = s3;
         });
         showLfoKind(d);
+        buildMisc(d, card);
     }
 
     // "E|<6 EG texts>|L|<rate phase deform angle d a r>|V|<6 env-LFO texts>"
@@ -576,12 +590,13 @@ function (event, funcs) {
         (m.E || []).forEach(function (t, i) { var c = d.egSliders && d.egSliders[i]; if (c) { c.text = t; c.show(); } });
         (m.L || []).forEach(function (t, i) { var c = d.lfoTextCtl && d.lfoTextCtl[i]; if (c) { c.text = t; if (c.show) c.show(); } });
         (m.V || []).forEach(function (t, i) { var c = d.lfoTextCtl && d.lfoTextCtl[7 + i]; if (c) { c.text = t; if (c.show) c.show(); } });
+        (m.P || []).forEach(function (t, i) { var c = d.partTextCtl && d.partTextCtl[i]; if (c) { c.text = t; c.show(); } });
     }
 
     // ---- what is loaded: part 1's groups "<name>^<zones>^<zone>^<zone>...~..." ----
     function gotNames(d, text) {
         d.groupNames = String(text).split('~').filter(function (x) { return x.length; }).map(function (g) {
-            var f = g.split('^'); return {name: f[0], zones: +f[1] || 0, zoneNames: f.slice(2)};
+            var f = g.split('^'); return {name: f[0], zones: +f[1] || 0, muted: (f[2] || '').indexOf('m') >= 0, soloed: (f[2] || '').indexOf('s') >= 0, zoneNames: f.slice(3)};
         });
         showGroup(d);
         var box = d.loadedBox;
@@ -595,6 +610,26 @@ function (event, funcs) {
             var z = g.zoneNames.slice(0, 3).join(', ') + (g.zones > 3 ? ' … (' + g.zones + ' zones)' : '');
             el('span', 'scx-ld-zones', row, z);
             row.title = g.zoneNames.join('\n');
+            row.classList.toggle('muted', g.muted && !g.soloed);
+            var tools = el('span', 'scx-ld-tools', row);
+            function tool(label, cls, title, fn) {
+                var b = el('button', cls, tools, label); b.title = title;
+                b.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+                b.addEventListener('click', function (e) { e.stopPropagation(); fn(b); });
+                return b;
+            }
+            tool('M', g.muted ? 'on' : '', 'Mute', function (b) { var on = !b.classList.contains('on'); b.classList.toggle('on', on); groupCmd(d, 'm,' + i + ',' + (on ? 1 : 0)); });
+            tool('S', g.soloed ? 'on' : '', 'Solo', function (b) { var on = !b.classList.contains('on'); b.classList.toggle('on', on); groupCmd(d, 's,' + i + ',' + (on ? 1 : 0)); });
+            tool('\u270E', '', 'Rename', function () {
+                askText(d, 'Rename group ' + (i + 1), g.name, [
+                    ['Rename', function (t) { t = t.replace(/[~|^]/g, ' ').trim(); if (t) groupCmd(d, 'r,' + i + ',' + t); }],
+                    ['Cancel', null]]);
+            });
+            tool('\u2715', 'scx-del', 'Delete', function () {
+                askText(d, 'Delete group ' + (i + 1) + ': ' + g.name + '?', null, [
+                    ['Delete', function () { groupCmd(d, 'd,' + i); if (d.group >= i && d.group > 0) { d.group -= 1; } }],
+                    ['Cancel', null]]);
+            });
             row.addEventListener('mousedown', function (e) { e.stopPropagation(); });
             row.addEventListener('click', function (e) { e.stopPropagation(); d.group = i; showGroup(d); funcs.patch_set(U('group'), 'f', i); });
         });
@@ -877,6 +912,343 @@ function (event, funcs) {
         })(s);
     }
 
+    // ---- a small dialog: a text field and buttons ----
+    // btns: [[label, fn(text)], ...]; the last one cancels
+    function askText(d, title, value, btns, extra) {
+        d.tdTitle.textContent = title;
+        d.tdInput.value = value === null ? '' : value;
+        d.tdInput.hidden = value === null;
+        d.tdExtra.innerHTML = '';
+        d.tdExtra.hidden = !extra;
+        if (extra) extra(d.tdExtra);
+        d.tdBtns.innerHTML = '';
+        btns.forEach(function (b) {
+            var x = el('button', '', d.tdBtns, b[0]);
+            x.addEventListener('click', function (e) { e.stopPropagation(); d.textDlg.hidden = true; if (b[1]) b[1](d.tdInput.value); });
+        });
+        d.textDlg.hidden = false;
+        if (value !== null) setTimeout(function () { d.tdInput.focus(); d.tdInput.select(); }, 0);
+    }
+    function buildTextDialog(d, root) {
+        d.textDlg = el('div', 'scx-modal', root); d.textDlg.hidden = true;
+        var dlg = el('div', 'scx-dialog', d.textDlg);
+        d.tdTitle = el('div', 'scx-dlg-title', dlg, '');
+        d.tdInput = el('input', 'scx-dlg-input', dlg);
+        d.tdInput.type = 'text';
+        d.tdExtra = el('div', 'scx-dlg-extra', dlg);
+        d.tdBtns = el('div', 'scx-dlg-btns', dlg);
+        d.tdInput.addEventListener('keydown', function (e) {
+            e.stopPropagation();
+            if (e.key === 'Enter') { var b = d.tdBtns.querySelector('button'); if (b) b.click(); }
+            if (e.key === 'Escape') d.textDlg.hidden = true;
+        });
+        d.textDlg.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    }
+
+    // ---- part 1: settings, sends, the 4 part effects, save ----
+    function pfxEdit(d, slot, kind, index, v) {
+        sendText(d, 'pfx_edit', slot + kind + index, slot + ',' + kind + ',' + index + ',' + v);
+    }
+    function buildPart(d, parent) {
+        var card = el('div', 'scx-card scx-part', parent);
+        var h4 = el('h4', '', card, '');
+        el('span', '', h4, 'Part 1');
+        var save = el('button', 'scx-h4btn scx-save', h4, 'Save .scp');
+        save.title = 'Save part 1 with your edits as a Shortcircuit part (.scp)';
+        save.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        save.addEventListener('click', function (e) { e.stopPropagation(); askSave(d); });
+        // tabs: Settings, FX 1..4
+        var tabs = el('div', 'scx-seg scx-tabs', card);
+        d.partPages = [];
+        d.partTabs = ['Settings', 'FX 1', 'FX 2', 'FX 3', 'FX 4'].map(function (t, i) {
+            var b = el('button', i === 0 ? 'on' : '', tabs, t);
+            b.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            b.addEventListener('click', function (e) { e.stopPropagation(); showPartPage(d, i); });
+            return b;
+        });
+        // settings page
+        var pg = el('div', 'scx-ppage scx-pset', card);
+        d.partPages.push(pg);
+        var r1 = el('div', 'scx-prow', pg);
+        d.partTextCtl = [];
+        [['part_volume', 'Volume', 0, 1, 1], ['part_pan', 'Pan', -1, 1, 0], ['part_tuning', 'Tuning', -36, 36, 0]].forEach(function (k, i) {
+            var c = {uri: U(k[0]), label: k[1], min: k[2], max: k[3], def: k[4]};
+            c.fmt = fmtText(c);
+            bind(d, c.uri, makeKnob(d, r1, c));
+            d.partTextCtl[i] = c;
+        });
+        bind(d, U('part_transpose'), makeKnob(d, r1, {uri: U('part_transpose'), label: 'Transpose', min: -36, max: 36, def: 0,
+            fmt: function (v) { v = Math.round(v); return (v > 0 ? '+' : '') + v + ' keys'; },
+            sendFn: function (v) { funcs.patch_set(U('part_transpose'), 'f', Math.round(v)); }}));
+        var sels = el('div', 'scx-pcol', r1);
+        bind(d, U('part_channel'), makeSelect(d, sels, {uri: U('part_channel'), label: 'MIDI', min: -1, max: 15, def: -1,
+            options: [[-1, 'OMNI']].concat(range(0, 15, function (i) { return 'CH ' + (i + 1); }))}));
+        bind(d, U('part_poly'), makeSelect(d, sels, {uri: U('part_poly'), label: 'Voices', min: 0, max: 256, def: 0,
+            options: [[0, 'NO LIMIT']].concat([1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 256].map(function (n) { return [n, '' + n]; }))}));
+        var ms = el('div', 'scx-pcol scx-pms', r1);
+        bind(d, U('part_mute'), makeToggle(d, ms, {uri: U('part_mute'), label: 'MUTE', title: 'Mute part 1'}));
+        bind(d, U('part_solo'), makeToggle(d, ms, {uri: U('part_solo'), label: 'SOLO', title: 'Solo part 1'}));
+        var r2 = el('div', 'scx-prow scx-sends', pg);
+        el('div', 'scx-sends-lbl', r2, 'Sends');
+        for (var a = 1; a <= 4; a++)
+            bind(d, U('part_send' + a), makeKnob(d, r2, {uri: U('part_send' + a), label: 'Aux ' + a, min: 0, max: 1, def: 0, fmt: fmtPct}));
+        // effect pages
+        d.pfx = [];
+        for (var s = 0; s < 4; s++) (function (s) {
+            var page = el('div', 'scx-ppage scx-pfx', card);
+            page.hidden = true;
+            d.partPages.push(page);
+            var head = el('div', 'scx-fx-head', page);
+            var slot = {page: page, type: 0, params: [], active: true};
+            slot.onBtn = el('button', 'scx-fx-on on', head, 'ON');
+            slot.onBtn.title = 'On / off';
+            slot.typeSel = el('select', 'scx-fx-type', head);
+            slot.syncBtn = el('button', 'scx-tgl', head, '♩ Sync');
+            slot.syncBtn.title = 'Tempo sync';
+            [slot.onBtn, slot.typeSel, slot.syncBtn].forEach(function (x) { x.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
+            slot.onBtn.addEventListener('click', function (e) {
+                e.stopPropagation(); slot.active = !slot.active;
+                slot.onBtn.classList.toggle('on', slot.active); page.classList.toggle('off', !slot.active);
+                pfxEdit(d, s, 'a', 0, slot.active ? 1 : 0);
+            });
+            slot.syncBtn.addEventListener('click', function (e) {
+                e.stopPropagation(); var on = !slot.syncBtn.classList.contains('on');
+                slot.syncBtn.classList.toggle('on', on); pfxEdit(d, s, 'y', 0, on ? 1 : 0);
+            });
+            slot.typeSel.addEventListener('change', function () { pfxEdit(d, s, 't', 0, parseInt(slot.typeSel.value, 10)); });
+            slot.body = el('div', 'scx-pfx-body', page);
+            el('div', 'scx-fx-none', slot.body, 'Empty slot');
+            d.pfx.push(slot);
+        })(s);
+        fillPfxTypes(d);
+    }
+    function showPartPage(d, i) {
+        d.partPage = i;
+        d.partTabs.forEach(function (b, k) { b.classList.toggle('on', k === i); });
+        d.partPages.forEach(function (p, k) { p.hidden = k !== i; });
+    }
+    function fillPfxTypes(d) {
+        if (!d.pfx || !d.pfxTypes) return;
+        d.pfx.forEach(function (slot) {
+            slot.typeSel.innerHTML = '';
+            d.pfxTypes.forEach(function (t) { var o = el('option', '', slot.typeSel, t.id === 0 ? '— none —' : t.name); o.value = t.id; });
+            slot.typeSel.value = '' + slot.type;
+        });
+    }
+    function pfxTabName(d, s) {
+        var slot = d.pfx[s], t = d.pfxTypes && d.pfxTypes.filter(function (x) { return x.id === slot.type; })[0];
+        d.partTabs[s + 1].textContent = 'FX ' + (s + 1) + (slot.type && t ? ': ' + t.name : '');
+        d.partTabs[s + 1].classList.toggle('dim', !slot.type || !slot.active);
+    }
+    // "<slot>|<type>|<name^min^max^def^F|I|B|N^choices...>~..."
+    function gotPfxDesc(d, text) {
+        var f = String(text).split('|'), s = +f[0], slot = d.pfx && d.pfx[s];
+        if (!slot) return;
+        slot.type = +f[1];
+        slot.typeSel.value = '' + slot.type;
+        slot.body.innerHTML = '';
+        slot.params = [];
+        if (!slot.type) { el('div', 'scx-fx-none', slot.body, 'Empty slot'); pfxTabName(d, s); return; }
+        var knobs = el('div', 'scx-pfx-knobs', slot.body);
+        (f[2] ? f[2].split('~') : []).forEach(function (e, i) {
+            var p = e.split('^');
+            if (!p[0] || p[4] === 'N') { slot.params.push(null); return; }
+            if (p[4] === 'I' && p.length > 5) {
+                var row = el('label', 'scx-fx-int', knobs), lo = Math.round(+p[1]);
+                el('span', '', row, p[0]);
+                var sel = el('select', '', row);
+                p.slice(5).forEach(function (name, k) { var o = el('option', '', sel, name); o.value = lo + k; });
+                sel.addEventListener('mousedown', function (ev) { ev.stopPropagation(); });
+                sel.addEventListener('change', function () { sel.local = Date.now(); pfxEdit(d, s, 'p', i, parseInt(sel.value, 10)); });
+                sel.set = function (v) { if (!(sel.local && Date.now() - sel.local < 800)) sel.value = '' + Math.round(v); };
+                sel.show = function () {};
+                slot.params.push(sel);
+                return;
+            }
+            var c = {label: p[0], min: +p[1], max: +p[2], def: +p[3]};
+            if (c.max <= c.min) c.max = c.min + 1;
+            c.fmt = fmtText(c);
+            c.sendFn = function (v) { pfxEdit(d, s, 'p', i, p[4] === 'F' ? v : Math.round(v)); };
+            slot.params.push(makeKnob(d, knobs, c));
+        });
+        pfxTabName(d, s);
+        if (slot.lastValues) gotPfxValues(d, slot.lastValues);
+    }
+    // "<slot>|<type>|<active>|<sync>|<values ~>|<texts ~>"
+    function gotPfxValues(d, text) {
+        var f = String(text).split('|'), s = +f[0], slot = d.pfx && d.pfx[s];
+        if (!slot) return;
+        slot.lastValues = text;
+        if (+f[1] !== slot.type) return;
+        slot.active = f[2] === '1';
+        slot.onBtn.classList.toggle('on', slot.active);
+        slot.page.classList.toggle('off', !slot.active);
+        slot.syncBtn.classList.toggle('on', f[3] === '1');
+        var vv = f[4] ? f[4].split('~') : [], tt = f[5] ? f[5].split('~') : [];
+        slot.params.forEach(function (c, i) {
+            if (!c || vv[i] === undefined) return;
+            c.text = tt[i];
+            if (c.local && Date.now() - c.local < 800) { c.show(); return; }
+            c.set(+vv[i]);
+        });
+        pfxTabName(d, s);
+    }
+    function askSave(d) {
+        var cur = d.groupNames && d.groupNames[0] ? d.groupNames[0].name : 'My part';
+        var mono = false;
+        askText(d, 'Save part 1 as .scp (in the Instruments folder, or give a full path)', cur, [
+            ['Save', function (t) {
+                if (!t) return;
+                d.status.textContent = 'Saving ' + t + ' …';
+                funcs.patch_set(U('save_part'), 's', (mono ? '1,' : '0,') + t);
+            }],
+            ['Cancel', null]
+        ], function (box) {
+            var lab = el('label', 'scx-dlg-chk', box);
+            var cb = el('input', '', lab); cb.type = 'checkbox';
+            el('span', '', lab, ' Put the samples in the file too (one big file, can be moved anywhere)');
+            cb.addEventListener('change', function () { mono = cb.checked; });
+        });
+    }
+    function gotSaved(d, text) {
+        var t = String(text), ok = t.indexOf('ok|') === 0;
+        d.status.textContent = ok ? 'Saved ' + baseName(t.substring(3)) : 'Save failed: ' + t.substring(t.indexOf('|') + 1);
+    }
+
+    // ---- group management in the loaded list ----
+    function groupCmd(d, text) { funcs.patch_set(U('group_cmd'), 's', text); }
+
+    // ---- MISC and AUDIO modulators of the group (next to the GLFO tabs) ----
+    function miscEdit(d, kind, idx, field, v) {
+        sendText(d, 'misc_edit', kind + idx + field, kind + ',' + idx + ',' + field + ',' + v);
+    }
+    function miniSelect(parent, label, options, onChange) {
+        var w = el('label', 'scx-mini', parent);
+        if (label) el('span', '', w, label);
+        var sel = el('select', '', w);
+        options.forEach(function (o) { var op = el('option', '', sel, o[1]); op.value = o[0]; });
+        sel.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        sel.addEventListener('change', function () { sel.local = Date.now(); onChange(parseInt(sel.value, 10)); });
+        sel.put = function (v) { if (!(sel.local && Date.now() - sel.local < 800)) sel.value = '' + v; };
+        return sel;
+    }
+    function buildMisc(d, card) {
+        var nums = range(1, 64, function (i) { return '' + i; });
+        d.misc = {ph: [], rnd: [], fol: []};
+        var misc = d.miscPage = el('div', 'scx-misc', card); misc.hidden = true;
+        el('div', 'scx-misc-h', misc, 'Phasors  (sync · rate · division · direction · phase)');
+        for (var i = 0; i < 4; i++) (function (i) {
+            var r = el('div', 'scx-misc-row', misc), ph = {};
+            el('span', 'scx-misc-name', r, 'Phasor ' + 'ABCD'[i]);
+            ph.s = miniSelect(r, '', [[1, 'VOICE'], [0, 'SONG']], function (v) { miscEdit(d, 'p', i, 's', v); });
+            ph.n = miniSelect(r, '', nums, function (v) { miscEdit(d, 'p', i, 'n', v); });
+            el('span', 'scx-misc-slash', r, '/');
+            ph.m = miniSelect(r, '', nums, function (v) { miscEdit(d, 'p', i, 'm', v); });
+            ph.d = miniSelect(r, '', [[0, 'NOTE'], [1, 'TRIPLET'], [2, 'DOTTED'], [3, 'x BPM']], function (v) { miscEdit(d, 'p', i, 'd', v); });
+            ph.r = miniSelect(r, '', [[0, 'UP'], [1, 'DOWN']], function (v) { miscEdit(d, 'p', i, 'r', v); });
+            ph.h = makeHBar(d, r, {label: 'Phase', def: 0, sendFn: function (v) { miscEdit(d, 'p', i, 'h', v.toFixed(4)); }});
+            ph.h.el.title = 'Phase';
+            d.misc.ph.push(ph);
+        })(i);
+        el('div', 'scx-misc-h', misc, 'Random');
+        var rr = el('div', 'scx-misc-row scx-misc-rnd', misc);
+        var styles = [[0, 'Unipolar'], [1, 'Bipolar'], [2, 'Normal'], [3, 'Half-Normal'], [4, 'Boolean+'], [5, 'Boolean-'], [6, 'Ternary']];
+        for (var k = 0; k < 4; k++) (function (k) {
+            d.misc.rnd.push(miniSelect(rr, 'Rnd ' + 'ABCD'[k], styles, function (v) { miscEdit(d, 'r', k, 's', v); }));
+        })(k);
+
+        var aud = d.audioPage = el('div', 'scx-misc scx-audio', card); aud.hidden = true;
+        for (var f = 0; f < 2; f++) (function (f) {
+            var box = el('div', 'scx-fol', aud), fo = {};
+            el('div', 'scx-misc-h', box, 'Envelope follower ' + 'AB'[f]);
+            var kn = el('div', 'scx-fol-knobs', box);
+            [['a', 'Attack', 0.000001, 0.1, 0.01, function (v) { return (v * 1000).toFixed(1) + ' ms'; }],
+             ['r', 'Release', 0.01, 0.5, 0.2, function (v) { return (v * 1000).toFixed(0) + ' ms'; }],
+             ['g', 'Gain', -36, 36, 0, function (v) { return v.toFixed(1) + ' dB'; }]].forEach(function (p) {
+                var c = {label: p[1], min: p[2], max: p[3], def: p[4]};
+                var f0 = p[5];
+                c.fmt = function (v) { return (c.text && !(c.local && Date.now() - c.local < 400)) ? c.text : f0(v); };
+                c.sendFn = function (v) { miscEdit(d, 'f', f, p[0], v.toPrecision(5)); };
+                fo[p[0]] = makeKnob(d, kn, c);
+            });
+            var opts = el('div', 'scx-fol-opts', box);
+            fo.s = miniSelect(opts, 'Follow', [[0, 'Pre-Proc'], [1, 'Post-Proc']], function (v) { miscEdit(d, 'f', f, 's', v); });
+            fo.l = el('button', 'scx-tgl', opts, 'Stereo link');
+            fo.l.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            fo.l.addEventListener('click', function (e) {
+                e.stopPropagation(); var on = !fo.l.classList.contains('on'); fo.l.classList.toggle('on', on);
+                fo.l.local = Date.now(); miscEdit(d, 'f', f, 'l', on ? 1 : 0);
+            });
+            d.misc.fol.push(fo);
+        })(f);
+        el('div', 'scx-lfo-note', aud, 'Follows the group\'s audio; use "Envelope Follower" as a source in the mod matrix.');
+    }
+    // "P|<sync^div^dir^phase^num^den>~...|R|<style>~...|F|<att^rel^gain^link^src^att text^rel text^gain text>~..."
+    function gotMiscText(d, text) {
+        if (!d.misc) return;
+        var p = String(text).split('|'), m = {};
+        for (var i = 0; i + 1 < p.length; i += 2) m[p[i]] = p[i + 1].split('~');
+        (m.P || []).forEach(function (e, i) {
+            var v = e.split('^'), ph = d.misc.ph[i];
+            if (!ph) return;
+            ph.s.put(v[0]); ph.d.put(v[1]); ph.r.put(v[2]); ph.n.put(v[4]); ph.m.put(v[5]);
+            if (!(ph.h.local && Date.now() - ph.h.local < 800)) ph.h.set(+v[3]);
+        });
+        (m.R || []).forEach(function (v, i) { if (d.misc.rnd[i]) d.misc.rnd[i].put(v); });
+        (m.F || []).forEach(function (e, i) {
+            var v = e.split('^'), fo = d.misc.fol[i];
+            if (!fo) return;
+            [['a', 0, 5], ['r', 1, 6], ['g', 2, 7]].forEach(function (q) {
+                var c = fo[q[0]]; c.text = v[q[2]];
+                if (c.local && Date.now() - c.local < 800) c.show(); else c.set(+v[q[1]]);
+            });
+            if (!(fo.l.local && Date.now() - fo.l.local < 800)) fo.l.classList.toggle('on', v[3] === '1');
+            fo.s.put(v[4]);
+        });
+    }
+    function showModView(d, view) {
+        d.modView = view;
+        d.lfoBody.hidden = view !== 'lfo';
+        d.miscPage.hidden = view !== 'misc';
+        d.audioPage.hidden = view !== 'audio';
+        if (d.lfoSync) d.lfoSync.el.style.visibility = view === 'lfo' ? '' : 'hidden';
+        d.lfoTabs.el.classList.toggle('dim', view !== 'lfo');
+        d.miscBtn.classList.toggle('on', view === 'misc');
+        d.audioBtn.classList.toggle('on', view === 'audio');
+        d.lfoTitle.textContent = view === 'misc' ? 'Group misc modulators' : view === 'audio' ? 'Group audio modulators' : 'Group LFO ' + ((d.lfoTabs.v || 0) + 1);
+    }
+
+    // ---- macros: one strip of 16 along the bottom; click a name to rename it ----
+    function buildMacros(d, root) {
+        var mc = el('div', 'scx-card scx-macros', root);
+        el('h4', '', mc, 'Macros  (click a name to rename it)');
+        var strip = el('div', 'scx-mstrip', mc);
+        d.macroKnobs = [];
+        for (var m = 0; m < 16; m++) (function (m) {
+            var sym = 'p' + m;
+            if (d.ports && d.ports[sym] === undefined) return;
+            var k = makeKnob(d, strip, {symbol: sym, label: 'Macro ' + (m + 1), min: 0, max: 1, def: 0,
+                fmt: function (v) { return Math.round(v * 100) + '%'; }});
+            bind(d, sym, k);
+            k.lbl.classList.add('scx-mname');
+            k.lbl.title = 'Rename';
+            k.lbl.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            k.lbl.addEventListener('click', function (e) {
+                e.stopPropagation();
+                askText(d, 'Name of macro ' + (m + 1), k.lbl.textContent, [
+                    ['Rename', function (t) { t = t.replace(/[~|^]/g, ' ').trim() || ('Macro ' + (m + 1)); k.lbl.textContent = t; funcs.patch_set(U('macro_edit'), 's', m + ',' + t); }],
+                    ['Cancel', null]]);
+            });
+            d.macroKnobs[m] = k;
+        })(m);
+    }
+    function gotMacroNames(d, text) {
+        String(text).split('~').forEach(function (n, i) {
+            var k = d.macroKnobs && d.macroKnobs[i];
+            if (k) { k.lbl.textContent = n || ('Macro ' + (i + 1)); k.lbl.title = 'Rename ' + k.lbl.textContent; }
+        });
+    }
+
     // ---- build ----
     function build(d) {
         var root = d.icon.find('.scx-root')[0];
@@ -902,9 +1274,10 @@ function (event, funcs) {
         [prev, next].forEach(function (b) { b.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
 
         // wide layout, three rows:
-        //   group settings | browser | macros
+        //   group settings | browser | part 1 (settings, sends, effects, save)
         //   envelopes | group LFO | mod matrix
         //   group effects | routing
+        //   macros (one strip of 16)
         var row1 = el('div', 'scx-row scx-row1', root);
         var row2 = el('div', 'scx-row scx-mods', root);
         var row3 = el('div', 'scx-row scx-row3', root);
@@ -949,8 +1322,8 @@ function (event, funcs) {
         el('div', 'scx-empty', d.loadedBox, 'Nothing loaded in part 1 yet.');
         d.entries = [];
         fillBrowser(d);
-        // macros (control ports p0..p15)
-        var mc = el('div', 'scx-card scx-macros', row1);
+        // part 1: settings, sends, effects, save
+        buildPart(d, row1);
 
         buildEG(d, row2);
         buildLFO(d, row2);
@@ -959,14 +1332,9 @@ function (event, funcs) {
         buildFx(d, row3);
         buildRouting(d, row3);
 
-        el('h4', '', mc, 'Macros');
-        var grid = el('div', 'scx-grid', mc);
-        for (var m = 0; m < 16; m++) {
-            var sym = 'p' + m;
-            if (d.ports && d.ports[sym] === undefined) continue;
-            bind(d, sym, makeKnob(d, grid, {symbol: sym, label: 'Macro ' + (m + 1), min: 0, max: 1, def: 0,
-                fmt: function (v) { return Math.round(v * 100) + '%'; }}));
-        }
+        // macros (control ports p0..p15): one strip along the bottom
+        buildMacros(d, root);
+        buildTextDialog(d, root);
 
         // load dialog
         d.modal = el('div', 'scx-modal', root); d.modal.hidden = true;
@@ -1017,6 +1385,12 @@ function (event, funcs) {
         if (key === U('loaded')) { if (d.loaded !== undefined && v !== d.loaded) d.status.textContent = ''; d.loaded = v; return; }
         if (key === U('names')) { var nm = joinChunk(d, 'names', v); if (nm !== null) gotNames(d, nm); return; }
         if (key === U('mods_text')) { gotModsText(d, v); return; }
+        if (key === U('pfx_types')) { d.pfxTypes = String(v).split('~').map(function (e) { var p = e.split('^'); return {id: +p[0], name: p[1]}; }); fillPfxTypes(d); return; }
+        if (key === U('pfx_desc')) { var pd = joinChunk(d, 'pdesc', v); if (pd !== null) gotPfxDesc(d, pd); return; }
+        if (key === U('pfx_values')) { var pv = joinChunk(d, 'pvalues', v); if (pv !== null) gotPfxValues(d, pv); return; }
+        if (key === U('saved')) { gotSaved(d, v); return; }
+        if (key === U('misc_text')) { gotMiscText(d, v); return; }
+        if (key === U('macro_names')) { gotMacroNames(d, v); return; }
         if (!d.ctl) return;
         var list = [d.ctl[key]].concat(d.ctlMore[key] || []);
         list.forEach(function (c) {

@@ -80,6 +80,20 @@ enum ParamId : uint32_t
     P_LFOE_R,
     P_LFOE_LOOP,
 
+    // part 1 (engine::Part::PartConfiguration) and its sends to the aux busses
+    P_PART_VOLUME,    // level, cubic amplitude 0..1 (0 dB = 1)
+    P_PART_PAN,       // -1 .. 1
+    P_PART_TUNING,    // -36 .. 36 semitones (fine)
+    P_PART_TRANSPOSE, // -36 .. 36 keys
+    P_PART_CHANNEL,   // -1 omni, 0..15
+    P_PART_POLY,      // 0 = no limit, else voices
+    P_PART_MUTE,      // 0/1
+    P_PART_SOLO,      // 0/1
+    P_SEND1,          // send level to aux 1..4, 0..1
+    P_SEND2,
+    P_SEND3,
+    P_SEND4,
+
     // text parameters (atom:String)
     P_BROWSE,         // panel -> plugin: list this folder (empty: the last one)
     P_LISTING,        // plugin -> panel: the folder listing, in chunks (see scxt_bridge.cpp)
@@ -95,7 +109,19 @@ enum ParamId : uint32_t
     P_MOD_ROWS,       // plugin -> panel: the 18 mod matrix rows, chunked
     P_MOD_EDIT,       // panel -> plugin: "<row>,<a|s|v|c|t|d>,<value>"
     P_NAMES,          // plugin -> panel: part 1's groups "<name>^<zones>^<zone name>^<zone name>...~...", chunked
-    P_MODS_TEXT,      // plugin -> panel: value texts "E|<6 EG times>|L|<rate phase deform angle d a r>|V|<6 env-LFO>"
+    P_MODS_TEXT,      // plugin -> panel: value texts "E|<6 EG times>|L|<rate phase deform angle d a r>|V|<6 env-LFO>|P|<part vol pan tuning>"
+    P_PFX_TYPES,      // plugin -> panel: part effect types "<id>^<name>~..."
+    P_PFX_DESC,       // plugin -> panel: one part effect slot's controls, chunked
+    P_PFX_VALUES,     // plugin -> panel: one part effect slot's values and texts, chunked
+    P_PFX_EDIT,       // panel -> plugin: "<slot>,<t|a|y|p>,<index>,<value>"
+    P_GROUP_CMD,      // panel -> plugin: "r,<group>,<name>" rename, "d,<group>" delete,
+                      //                  "m,<group>,<0|1>" mute, "s,<group>,<0|1>" solo
+    P_SAVE_PART,      // panel -> plugin: "<0|1>,<name or path>" save part 1 as .scp (1 = with samples)
+    P_SAVED,          // plugin -> panel: "ok|<path>" or "error|<text>"
+    P_MISC_TEXT,      // plugin -> panel: phasors, randoms, envelope followers (see scxt_bridge.cpp)
+    P_MISC_EDIT,      // panel -> plugin: "<p|r|f>,<index>,<field>,<value>"
+    P_MACRO_NAMES,    // plugin -> panel: the 16 macro names joined with '~'
+    P_MACRO_EDIT,     // panel -> plugin: "<macro>,<name>"
 
     P_NUM
 };
@@ -170,6 +196,19 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"lfoenv_release", "LFO env release", 0, 1, 1, true, false},
     {"lfoenv_loop", "LFO env loop", 0, 1, 0, true, true},
 
+    {"part_volume", "Part volume", 0, 1, 1, true, false},
+    {"part_pan", "Part pan", -1, 1, 0, true, false},
+    {"part_tuning", "Part tuning", -36, 36, 0, true, false},
+    {"part_transpose", "Part transpose", -36, 36, 0, true, true},
+    {"part_channel", "Part MIDI channel (-1 = omni)", -1, 15, -1, true, true},
+    {"part_poly", "Part polyphony (0 = no limit)", 0, 256, 0, true, true},
+    {"part_mute", "Part mute", 0, 1, 0, true, true},
+    {"part_solo", "Part solo", 0, 1, 0, true, true},
+    {"part_send1", "Send to aux 1", 0, 1, 0, true, false},
+    {"part_send2", "Send to aux 2", 0, 1, 0, true, false},
+    {"part_send3", "Send to aux 3", 0, 1, 0, true, false},
+    {"part_send4", "Send to aux 4", 0, 1, 0, true, false},
+
     {"browse", "Browse folder", 0, 0, 0, true, false},
     {"listing", "Folder listing", 0, 0, 0, false, false},
     {"load_path", "Load file", 0, 0, 0, true, false},
@@ -185,6 +224,17 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"mod_edit", "Mod matrix edit", 0, 0, 0, true, false},
     {"names", "Loaded names", 0, 0, 0, false, false},
     {"mods_text", "Modulator value texts", 0, 0, 0, false, false},
+    {"pfx_types", "Part effect types", 0, 0, 0, false, false},
+    {"pfx_desc", "Part effect controls", 0, 0, 0, false, false},
+    {"pfx_values", "Part effect values", 0, 0, 0, false, false},
+    {"pfx_edit", "Part effect edit", 0, 0, 0, true, false},
+    {"group_cmd", "Group command", 0, 0, 0, true, false},
+    {"save_part", "Save part 1", 0, 0, 0, true, false},
+    {"saved", "Save result", 0, 0, 0, false, false},
+    {"misc_text", "Misc and audio modulators", 0, 0, 0, false, false},
+    {"misc_edit", "Misc and audio modulator edit", 0, 0, 0, true, false},
+    {"macro_names", "Macro names", 0, 0, 0, false, false},
+    {"macro_edit", "Macro rename", 0, 0, 0, true, false},
 };
 
 } // namespace scxt_lv2
