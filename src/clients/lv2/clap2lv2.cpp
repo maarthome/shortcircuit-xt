@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 
 #include <cmath>
+#include <cstring>
 #include <cstdlib>
 #include <memory>
 #include <vector>
@@ -132,7 +133,7 @@ struct Plugin
     {
         LV2_URID patchSet, patchGet, patchProperty, patchValue, atomURID, atomSequence;
         LV2_URID paramUrid[scxt_lv2::P_NUM];
-        LV2_URID midiEvent, atomObject, atomBlank, atomChunk, atomFloat, atomDouble, atomInt,
+        LV2_URID midiEvent, atomObject, atomBlank, atomChunk, atomFloat, atomDouble, atomInt, atomString, atomPath,
             atomLong, timePosition, timeBpm, timeSpeed, timeBar, timeBarBeat, timeBeatsPerBar,
             timeBeatUnit, stateKey, bufMaxBlock, bufNominalBlock;
     } u{};
@@ -180,6 +181,8 @@ struct Plugin
         u.atomBlank = m(LV2_ATOM__Blank);
         u.atomChunk = m(LV2_ATOM__Chunk);
         u.atomFloat = m(LV2_ATOM__Float);
+        u.atomString = m(LV2_ATOM__String);
+        u.atomPath = m(LV2_ATOM__Path);
         u.atomDouble = m(LV2_ATOM__Double);
         u.atomInt = m(LV2_ATOM__Int);
         u.atomLong = m(LV2_ATOM__Long);
@@ -409,7 +412,16 @@ struct Plugin
         for (uint32_t i = 0; i < scxt_lv2::P_NUM; ++i)
             if (u.paramUrid[i] == key)
             {
-                bridge->post(i, (float)atomNumber(val, 0));
+                if (scxt_lv2::isStringParam(i))
+                {
+                    if (val->type == u.atomString || val->type == u.atomPath)
+                    {
+                        auto *t = (const char *)LV2_ATOM_BODY_CONST(val);
+                        bridge->postString(i, t, (uint32_t)strnlen(t, val->size));
+                    }
+                }
+                else
+                    bridge->post(i, (float)atomNumber(val, 0));
                 return;
             }
     }
@@ -434,6 +446,23 @@ struct Plugin
             lv2_atom_forge_urid(&forge, u.paramUrid[p]);
             lv2_atom_forge_key(&forge, u.patchValue);
             lv2_atom_forge_float(&forge, v);
+            lv2_atom_forge_pop(&forge, &obj);
+        }
+        // text values (folder listings): a few per cycle, mod-host forwards them one by one
+        static thread_local char text[1024];
+        uint32_t len;
+        for (int k = 0; bridge && k < 4 && forge.offset + 1200 < capacity &&
+                        bridge->popOutString(p, text, sizeof(text) - 1, len);
+             ++k)
+        {
+            text[len] = 0;
+            LV2_Atom_Forge_Frame obj;
+            lv2_atom_forge_frame_time(&forge, 0);
+            lv2_atom_forge_object(&forge, &obj, 0, u.patchSet);
+            lv2_atom_forge_key(&forge, u.patchProperty);
+            lv2_atom_forge_urid(&forge, u.paramUrid[p]);
+            lv2_atom_forge_key(&forge, u.patchValue);
+            lv2_atom_forge_string(&forge, text, len);
             lv2_atom_forge_pop(&forge, &obj);
         }
         lv2_atom_forge_pop(&forge, &seq);

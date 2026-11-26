@@ -1,6 +1,6 @@
 /*
  * scxt_params.h - the LV2 patch parameters of the Shortcircuit XT LV2 that the
- * MOD panel uses (group selection, instrument loading, group settings, EG1).
+ * MOD panel uses (group selection, file browser and loading, group settings, EG1).
  *
  * Part of the maarthome/shortcircuit-xt "my_own" branch.
  * Licensed under the MIT license, like the rest of src/ in this repository.
@@ -22,7 +22,6 @@ enum ParamId : uint32_t
     P_GROUP = 0,      // which group of part 1 the panel edits (0-based)
     P_GROUP_COUNT,    // number of groups in part 1 (read only)
     P_LOAD_MODE,      // 0 = add to part 1, 1 = replace part 1
-    P_INSTRUMENT,     // index into instruments.txt; setting it loads that instrument
     P_LOADED,         // increases after each load, preset change or structure change (read only)
 
     // group settings (engine::Group::GroupOutputInfo)
@@ -48,8 +47,19 @@ enum ParamId : uint32_t
     P_EG_S,
     P_EG_R,
 
+    // text parameters (atom:String)
+    P_BROWSE,         // panel -> plugin: list this folder (empty: the last one)
+    P_LISTING,        // plugin -> panel: the folder listing, in chunks (see scxt_bridge.cpp)
+    P_LOAD_PATH,      // panel -> plugin: load this file (sfz, sample, ...) with load_mode
+    P_FOLDERS,        // plugin -> panel: saved folders, separated by '|'
+    P_FOLDER_ADD,     // panel -> plugin: save this folder
+    P_FOLDER_REMOVE,  // panel -> plugin: forget this folder
+
     P_NUM
 };
+
+constexpr uint32_t P_FIRST_STRING = P_BROWSE;
+inline bool isStringParam(uint32_t p) { return p >= P_FIRST_STRING && p < P_NUM; }
 
 struct ParamDef
 {
@@ -64,7 +74,6 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"group", "Group", 0, 63, 0, true, true},
     {"group_count", "Group count", 0, 64, 0, false, true},
     {"load_mode", "Load mode", 0, 1, 0, true, true},
-    {"instrument", "Instrument", -1, 99999, -1, true, true},
     {"loaded", "Loaded", 0, 1e9f, 0, false, true},
 
     {"group_volume", "Volume", 0, 1.5849f, 1, true, false},
@@ -87,6 +96,13 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"eg1_decay", "D", 0, 1, 0, true, false},
     {"eg1_sustain", "S", 0, 1, 1, true, false},
     {"eg1_release", "R", 0, 1, 0.5f, true, false},
+
+    {"browse", "Browse folder", 0, 0, 0, true, false},
+    {"listing", "Folder listing", 0, 0, 0, false, false},
+    {"load_path", "Load file", 0, 0, 0, true, false},
+    {"folders", "Saved folders", 0, 0, 0, false, false},
+    {"folder_add", "Save folder", 0, 0, 0, true, false},
+    {"folder_remove", "Forget folder", 0, 0, 0, true, false},
 };
 
 } // namespace scxt_lv2

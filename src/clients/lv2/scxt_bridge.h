@@ -8,7 +8,9 @@
  * the bridge without blocking; the bridge's own thread turns them into the
  * same engine messages Shortcircuit XT's editor sends (select group, group
  * output field edits, EG edits, clear part, add sample) and reports the
- * selected group's values back, which run() sends to the panel.
+ * selected group's values back, which run() sends to the panel. It also
+ * lists folders for the panel's file browser and remembers the last folder
+ * and the saved folders in ~/.config/ShortCircuit-XT/browser.txt.
  */
 #pragma once
 
@@ -27,7 +29,7 @@ class Bridge
 {
   public:
     // plugin: the Shortcircuit XT CLAP plugin instance linked into this binary
-    // bundlePath: the LV2 bundle (instruments.txt lives there)
+    // bundlePath: the LV2 bundle
     Bridge(const clap_plugin_t *plugin, const std::string &bundlePath);
     ~Bridge();
 
@@ -37,6 +39,11 @@ class Bridge
     void requestAll();
     // audio thread: next value to send to the panel; false when none
     bool popOut(uint32_t &param, float &value);
+
+    // audio thread: a text parameter from the panel (copied, never blocks; dropped when full)
+    void postString(uint32_t param, const char *text, uint32_t len);
+    // audio thread: next text to send to the panel, copied into buf (never blocks)
+    bool popOutString(uint32_t &param, char *buf, uint32_t cap, uint32_t &len);
 
     // engine state was replaced (LV2 state restore): re-read everything
     void stateChanged();

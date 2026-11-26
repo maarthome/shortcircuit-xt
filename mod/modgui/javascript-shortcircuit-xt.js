@@ -1,10 +1,10 @@
 function (event, funcs) {
     // Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, my_own branch).
-    // Group settings, instrument and EG1 are LV2 patch parameters (scxt_params.h in the
-    // plugin source); the 16 macros are the plugin's control ports p0..p15.
+    // Group settings, the file browser and EG1 are LV2 patch parameters (scxt_params.h in
+    // the plugin source); the 16 macros are the plugin's control ports p0..p15.
+    // The plugin lists folders itself (browse -> listing chunks) and remembers the last
+    // folder and the saved folders in ~/.config/ShortCircuit-XT/browser.txt on the device.
     var BASE = 'https://github.com/maarthome/shortcircuit-xt#lv2-';
-    // instruments.txt order, filled in by build_scxt.sh: paths relative to the instruments folder
-    var INSTRUMENTS = /*__INSTRUMENTS__*/[];
 
     function U(key) { return BASE + key; }
     function expTime(x) { return (Math.exp(0.6931471824646 + x * (10.1267113685608 - 0.6931471824646)) - 2) / 1000; }
@@ -150,61 +150,89 @@ function (event, funcs) {
         return c;
     }
 
-    // ---- instrument browser ----
-    function buildTree() {
-        var root = {dirs: {}, files: []};
-        INSTRUMENTS.forEach(function (p, i) {
-            var parts = p.split('/'), node = root;
-            for (var k = 0; k < parts.length - 1; k++) {
-                node = node.dirs[parts[k]] || (node.dirs[parts[k]] = {dirs: {}, files: [], name: parts[k], parent: node});
-            }
-            node.files.push({name: parts[parts.length - 1], index: i});
-        });
-        return root;
+    // ---- file browser ----
+    function joinPath(dir, name) { return dir === '/' ? '/' + name : dir + '/' + name; }
+    function parentOf(dir) { var i = dir.lastIndexOf('/'); return i <= 0 ? '/' : dir.substring(0, i); }
+    function baseName(p) { return p === '/' ? '/' : p.substring(p.lastIndexOf('/') + 1); }
+    function browse(d, dir) {
+        d.status.textContent = '';
+        d.wantDir = dir;
+        funcs.patch_set(U('browse'), 's', dir);
     }
-    function nat(a, b) { return a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}); }
+
+    // "<n>/<total>|<folder>|D<dir>|F<file>|..."
+    function gotListing(d, text) {
+        var parts = String(text).split('|');
+        if (parts.length < 2) return;
+        var seq = parts[0].split('/'), n = parseInt(seq[0], 10), total = parseInt(seq[1], 10), dir = parts[1];
+        if (n === 1 || dir !== d.cwd) { d.cwd = dir; d.entries = []; d.got = 0; d.search.value = ''; }
+        d.got++;
+        for (var i = 2; i < parts.length; i++) {
+            var e = parts[i];
+            if (e.length > 1) d.entries.push({dir: e[0] === 'D', name: e.substring(1)});
+        }
+        d.complete = d.got >= total;
+        showList(d);
+    }
+
+    function gotFolders(d, text) {
+        var f = String(text).split('|').filter(function (x) { return x.length; });
+        d.defaultDir = f[0] || d.defaultDir;
+        d.saved = f.slice(1);
+        showFolders(d);
+    }
+
+    function showFolders(d) {
+        var sel = d.folderSel;
+        sel.innerHTML = '';
+        function opt(value, label) { var o = el('option', '', sel, label); o.value = value; o.title = value; return o; }
+        opt('', d.cwd ? baseName(d.cwd) + '  (' + d.cwd + ')' : '…').disabled = true;
+        if (d.defaultDir) {
+            opt(d.defaultDir, '\u2302 Instruments');
+            var home = d.defaultDir.replace(/\/\.local\/share\/ShortCircuit-XT$/, '');
+            if (home !== d.defaultDir) opt(home, '\u2302 Home');
+        }
+        opt('/media', '\u2302 USB / media');
+        (d.saved || []).forEach(function (f) { opt(f, '\u2605 ' + baseName(f) + '  (' + f + ')'); });
+        sel.value = '';
+        var isSaved = (d.saved || []).indexOf(d.cwd) >= 0;
+        d.starBtn.textContent = isSaved ? '\u2605' : '\u2606';
+        d.starBtn.title = isSaved ? 'Forget this folder' : 'Remember this folder';
+    }
 
     function showList(d) {
         var list = d.list, q = d.search.value.trim().toLowerCase();
         list.innerHTML = '';
-        if (!INSTRUMENTS.length) {
-            el('div', 'scx-empty', list, 'No instruments yet. Copy them to ~/.local/share/ShortCircuit-XT on the pi-Stomp (build_scxt.sh --deploy --instruments DIR).');
-            return;
+        d.pathEl.value = d.cwd || '';
+        showFolders(d);
+        if (d.cwd === undefined) { el('div', 'scx-empty', list, 'Waiting for the plugin…'); return; }
+        if (!q && d.cwd !== '/') {
+            el('div', 'scx-item dir', list, '..').addEventListener('click', function () { browse(d, parentOf(d.cwd)); });
         }
-        if (q) {
-            d.pathEl.textContent = 'Search: ' + q;
-            INSTRUMENTS.forEach(function (p, i) {
-                if (p.toLowerCase().indexOf(q) < 0) return;
-                var it = el('div', 'scx-item file', list, p);
-                it.addEventListener('click', function () { askLoad(d, i); });
-            });
-            return;
-        }
-        var node = d.cwd, path = [];
-        for (var n = node; n && n.name; n = n.parent) path.unshift(n.name);
-        d.pathEl.textContent = 'Instruments/' + path.join('/');
-        if (node.parent) {
-            el('div', 'scx-item dir', list, '..').addEventListener('click', function () { d.cwd = node.parent; showList(d); });
-        }
-        Object.keys(node.dirs).sort(nat).forEach(function (k) {
-            el('div', 'scx-item dir', list, k).addEventListener('click', function () { d.cwd = node.dirs[k]; showList(d); });
+        var shown = 0;
+        d.entries.forEach(function (e) {
+            if (q && e.name.toLowerCase().indexOf(q) < 0) return;
+            shown++;
+            var it = el('div', 'scx-item ' + (e.dir ? 'dir' : 'file'), list, e.name);
+            var full = joinPath(d.cwd, e.name);
+            it.title = full;
+            it.addEventListener('click', function () { if (e.dir) browse(d, full); else askLoad(d, full); });
         });
-        node.files.slice().sort(function (a, b) { return nat(a.name, b.name); }).forEach(function (f) {
-            el('div', 'scx-item file', list, f.name).addEventListener('click', function () { askLoad(d, f.index); });
-        });
+        if (!shown) el('div', 'scx-empty', list, q ? 'Nothing matches "' + q + '" in this folder.' :
+            (d.complete ? 'No instruments or samples here (sfz, sf2, multisample, wav, flac, aiff, ogg, mp3).' : 'Loading…'));
     }
 
-    function askLoad(d, index) {
-        d.dlgName.textContent = INSTRUMENTS[index];
-        d.pendingLoad = index;
+    function askLoad(d, path) {
+        d.dlgName.textContent = path;
+        d.pendingLoad = path;
         d.modal.hidden = false;
     }
     function doLoad(d, mode) {
         d.modal.hidden = true;
         if (d.pendingLoad === undefined) return;
         funcs.patch_set(U('load_mode'), 'f', mode);
-        funcs.patch_set(U('instrument'), 'f', d.pendingLoad);
-        d.status.textContent = (mode ? 'Replacing part 1 with ' : 'Adding to part 1: ') + INSTRUMENTS[d.pendingLoad].split('/').pop();
+        funcs.patch_set(U('load_path'), 's', d.pendingLoad);
+        d.status.textContent = (mode ? 'Replacing part 1 with ' : 'Adding to part 1: ') + baseName(d.pendingLoad);
         d.pendingLoad = undefined;
     }
 
@@ -241,15 +269,32 @@ function (event, funcs) {
         // instrument browser + EG1
         var mid = el('div', 'scx-mid', root);
         var br = el('div', 'scx-card scx-browser', mid);
-        el('h4', '', br, 'Instrument');
-        d.search = el('input', 'scx-search', br); d.search.placeholder = 'Search instruments';
+        el('h4', '', br, 'Instruments & samples');
+        var bar = el('div', 'scx-bar', br);
+        d.folderSel = el('select', 'scx-folders', bar);
+        d.folderSel.title = 'Folders';
+        d.folderSel.addEventListener('change', function () { if (d.folderSel.value) browse(d, d.folderSel.value); });
+        d.starBtn = el('button', 'scx-star', bar, '\u2606');
+        d.starBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!d.cwd) return;
+            var isSaved = (d.saved || []).indexOf(d.cwd) >= 0;
+            funcs.patch_set(U(isSaved ? 'folder_remove' : 'folder_add'), 's', d.cwd);
+        });
+        d.pathEl = el('input', 'scx-pathin', br);
+        d.pathEl.placeholder = 'Folder, e.g. /media/usb';
+        d.pathEl.title = 'Type a folder and press Enter';
+        d.pathEl.addEventListener('keydown', function (e) {
+            e.stopPropagation();
+            if (e.key === 'Enter' && d.pathEl.value.trim()) browse(d, d.pathEl.value.trim().replace(/\/+$/, '') || '/');
+        });
+        d.search = el('input', 'scx-search', br); d.search.placeholder = 'Search in this folder';
         d.search.addEventListener('input', function () { showList(d); });
-        d.search.addEventListener('mousedown', function (e) { e.stopPropagation(); });
         d.search.addEventListener('keydown', function (e) { e.stopPropagation(); });
-        d.pathEl = el('div', 'scx-path', br, '');
+        [bar, d.pathEl, d.search].forEach(function (x) { x.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
         d.list = el('div', 'scx-list', br);
         d.list.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-        d.tree = buildTree(); d.cwd = d.tree;
+        d.entries = [];
         showList(d);
 
         var eg = el('div', 'scx-card scx-eg', mid);
@@ -274,7 +319,7 @@ function (event, funcs) {
         // load dialog
         d.modal = el('div', 'scx-modal', root); d.modal.hidden = true;
         var dlg = el('div', 'scx-dialog', d.modal);
-        el('div', 'scx-dlg-title', dlg, 'Load instrument');
+        el('div', 'scx-dlg-title', dlg, 'Load into part 1');
         d.dlgName = el('div', 'scx-dlg-name', dlg, '');
         var btns = el('div', 'scx-dlg-btns', dlg);
         el('button', '', btns, 'Add to part 1').addEventListener('click', function (e) { e.stopPropagation(); doLoad(d, 0); });
@@ -293,6 +338,8 @@ function (event, funcs) {
         // key: parameter uri or port symbol
         if (key === U('group')) { d.group = Math.round(v); showGroup(d); return; }
         if (key === U('group_count')) { d.groupCount = Math.round(v); showGroup(d); return; }
+        if (key === U('listing')) { gotListing(d, v); return; }
+        if (key === U('folders')) { gotFolders(d, v); return; }
         if (key === U('loaded')) { if (d.loaded !== undefined && v !== d.loaded) d.status.textContent = ''; d.loaded = v; return; }
         var c = d.ctl && d.ctl[key];
         if (!c) return;
@@ -310,7 +357,8 @@ function (event, funcs) {
         build(d);
         if (d.ports) for (var sym in d.ports) setValue(d, sym, d.ports[sym]);
         (event.parameters || []).forEach(function (p) { setValue(d, p.uri, p.value); });
-        // ask the plugin for the current values of the selected group
+        // ask the plugin for the current values of the selected group, the saved folders
+        // and the listing of the last folder
         funcs.patch_get(U('group'));
     } else if (event.type === 'change') {
         if (!d.ctl) return;

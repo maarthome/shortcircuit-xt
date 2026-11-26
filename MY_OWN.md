@@ -11,10 +11,9 @@ Raspberry Pi 5 (aarch64, Debian trixie), used on a pi-Stomp (MOD) and a Zynthian
 | `src/clients/CMakeLists.txt` | option `SCXT_BUILD_LV2` (off by default) adds `src/clients/lv2` to the build — the only change to an upstream file |
 | `src/clients/lv2/clap2lv2.cpp` | the LV2 plugin and X11 UI, with Shortcircuit XT's plugin code linked in |
 | `src/clients/lv2/clap_host.h` | the host side the plugin code talks to (threads, timers, editor window) |
-| `src/clients/lv2/scxt_params.h` | the panel's LV2 parameters (group, instrument, group settings, EG1) |
+| `src/clients/lv2/scxt_params.h` | the panel's LV2 parameters (group, file browser, group settings, EG1) |
 | `src/clients/lv2/scxt_bridge.cpp`, `.h` | turns panel parameter changes into the engine messages Shortcircuit XT's editor sends, and reports values back |
 | `mod/modgui.ttl`, `mod/modgui/` | the MOD panel (pi-Stomp) |
-| `mod/instrument_list.py` | makes the panel's instrument list (`instruments.txt` + the list in the panel script) |
 | `src/clients/lv2/clap2lv2_ttl.cpp` | `scxt-lv2-ttl`: writes the bundle's `.ttl` files from the plugin's own knob list |
 | `src/clients/lv2/CMakeLists.txt` | targets `scxt_lv2` and `scxt-lv2-ttl` |
 | `src/clients/lv2/README.md` | technical description |
@@ -50,9 +49,14 @@ The bundle includes a panel for MOD-UI, from top to bottom:
 - **Group settings:** volume, pan, tuning, pitch bend down/up, glide time and mode, velocity
   sensitivity, play mode (poly / piano / mono / legato), note priority, voices, MIDI channel,
   exclusive group.
-- **Instrument browser:** the instruments in `~/.local/share/ShortCircuit-XT` on the
-  pi-Stomp (folders, `.sfz` files and loose samples; samples that belong to an `.sfz` are hidden),
-  with a search box. Choosing one asks "Add to part 1" (new group) or "Replace part 1".
+- **Instruments & samples browser:** any folder on the pi-Stomp. The folder menu has
+  ⌂ Instruments (`~/.local/share/ShortCircuit-XT`), ⌂ Home, ⌂ USB / media (`/media`) and your
+  ★ saved folders; you can also type a folder (e.g. `/media/usb0/Samples`) and press Enter.
+  It shows sub-folders and `.sfz .sf2 .multisample .wav .flac .aif(f) .ogg .mp3` files, with a
+  search box for the current folder. ☆ remembers the current folder (★ forgets it again).
+  The last folder you opened comes back next time. Both are kept in
+  `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp. Choosing a file asks
+  "Add to part 1" (new group) or "Replace part 1".
 - **Group EG1 (amp envelope):** Dly, A, H, D, S, R.
 - **Macros 1–16** (the control ports, also on the pi-Stomp display and knobs).
 
@@ -62,9 +66,9 @@ editor: select group, change a group field, change an EG value, clear part, load
 `.sfz`. Every 200 ms it reads the selected group's values back and sends changes to the panel
 (atom output port `events_out`), so the panel follows presets, loads and the editor.
 
-The instrument list is made when installing: `--deploy` reads the pi-Stomp's instruments folder
-(after copying `--instruments DIR`, if given) and writes the same list into `instruments.txt` (for
-the plugin) and the panel. After adding instruments on the pi-Stomp by hand, run `--deploy` again.
+The plugin lists the folders itself (the listing goes to the panel in pieces of about 400
+characters, because mod-host passes at most about 500 per message) and loads files by their full
+path, so new files on the pi-Stomp or a USB stick show up straight away.
 
 Still to come: the 4 effect slots, mod matrix, routing, EG2–5 and LFO1–4.
 

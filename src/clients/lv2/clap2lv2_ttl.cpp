@@ -305,6 +305,12 @@ int main(int argc, char **argv)
         {
             const auto &d = scxt_lv2::paramDefs[i];
             std::string uri = std::string("<") + CLAP2LV2_URI + "-" + d.key + ">";
+            if (scxt_lv2::isStringParam(i))
+                panelParams << uri << "\n"
+                            << "    a lv2:Parameter ;\n"
+                            << "    rdfs:label \"" << esc(d.label) << "\" ;\n"
+                            << "    rdfs:range atom:String .\n\n";
+            else
             panelParams << uri << "\n"
                    << "    a lv2:Parameter ;\n"
                    << "    rdfs:label \"" << esc(d.label) << "\" ;\n"

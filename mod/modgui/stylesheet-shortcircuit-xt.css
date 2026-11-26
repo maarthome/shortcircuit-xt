@@ -37,6 +37,10 @@
 /* middle row: browser + EG1 */
 .scxt .scx-mid { display: flex; gap: 8px; flex: 1; min-height: 0; }
 .scxt .scx-browser { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.scxt .scx-bar { display: flex; gap: 4px; margin-bottom: 4px; }
+.scxt .scx-folders { flex: 1; min-width: 0; height: 26px; background: #1d2126; color: #d6dae0; border: 1px solid #3f464f; border-radius: 4px; font-size: 12px; }
+.scxt .scx-star { width: 30px; height: 26px; background: #2a3038; color: #f0a83a; border: 1px solid #3f464f; border-radius: 4px; font-size: 15px; cursor: pointer; padding: 0; }
+.scxt .scx-pathin { height: 24px; box-sizing: border-box; background: #16191d; color: #aeb6c0; border: 1px solid #343a42; border-radius: 4px; font-size: 11px; padding: 0 8px; margin-bottom: 4px; font-family: monospace; }
 .scxt .scx-path { font-size: 11px; color: #8a929c; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .scxt .scx-search { height: 26px; box-sizing: border-box; background: #1d2126; color: #d6dae0; border: 1px solid #3f464f; border-radius: 4px; font-size: 12px; padding: 0 8px; margin-bottom: 4px; }
 .scxt .scx-list { flex: 1; overflow-y: auto; background: #1d2126; border: 1px solid #343a42; border-radius: 4px; }

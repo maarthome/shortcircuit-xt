@@ -24,7 +24,8 @@
 #   --instruments DIR  copy the instruments (sfz, samples, subfolders) in DIR to the
 #                      pi-Stomp's ~/.local/share/ShortCircuit-XT (with
 #                      --deploy; like Surge's ~/.local/share/surge-xt) or into the
-#                      .deb as /usr/share/ShortCircuit-XT (with --deb)
+#                      .deb as /usr/share/ShortCircuit-XT (with --deb). The panel can
+#                      also browse any other folder (USB stick etc.) and remembers it
 #   --with-clap        also build the plain CLAP (dist-linux-aarch64/Shortcircuit XT.clap)
 #   -h, --help         this help
 #
@@ -207,12 +208,8 @@ build() {
     cp -r "$ROOT/mod/modgui" "$BUNDLE/"
     cp "$ROOT/mod/modgui.ttl" "$BUNDLE/"
     printf '\n<https://github.com/maarthome/shortcircuit-xt#lv2> rdfs:seeAlso <modgui.ttl> .\n' >> "$BUNDLE/manifest.ttl"
-    # instrument list: from --instruments now; --deploy replaces it with the pi-Stomp's folder
-    if [ -n "$INSTRUMENTS" ]; then
-        (cd "$INSTRUMENTS" && find . -type f) | python3 "$ROOT/mod/instrument_list.py" "$BUNDLE"
-    else
-        python3 "$ROOT/mod/instrument_list.py" "$BUNDLE" < /dev/null
-    fi
+    # the panel's file browser asks the plugin for folder listings, so no list is made here
+    rm -f "$BUNDLE/instruments.txt"
 
     # the plain CLAP is only kept with --with-clap (an old copy confuses lv2ls)
     rm -f "$DIST/Shortcircuit XT.clap"
@@ -247,9 +244,6 @@ deploy_pistomp() {
         ssh "$PISTOMP" "mkdir -p .local/share/ShortCircuit-XT"
         rsync -a --protect-args "${INSTRUMENTS%/}/" "$PISTOMP:.local/share/ShortCircuit-XT/"
     fi
-    log "Reading the instruments on the pi-Stomp for the panel's list"
-    ssh "$PISTOMP" 'cd .local/share/ShortCircuit-XT 2>/dev/null && find . -type f' \
-        | python3 "$ROOT/mod/instrument_list.py" "$BUNDLE"
     log "Installing on the pi-Stomp ($PISTOMP:$dest)"
     ssh "$PISTOMP" "mkdir -p '$dest' && rm -rf '$dest/$BUNDLE_NAME'"
     rsync -a --protect-args "$BUNDLE" "$PISTOMP:$dest/"

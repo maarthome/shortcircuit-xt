@@ -11,11 +11,16 @@
 #include "messaging/client/client_messages.h"
 #include "messaging/client/client_serial.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
+#include <deque>
+#include <filesystem>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <mutex>
 #include <pwd.h>
@@ -62,6 +67,85 @@ template <size_t N> struct Ring
     }
 };
 
+// Single producer / single consumer ring of (param, text) slots
+struct StrRing
+{
+    static constexpr size_t N = 16, LEN = 2048;
+    struct Item
+    {
+        uint32_t p;
+        uint32_t len;
+        char text[LEN];
+    };
+    std::array<Item, N> items{};
+    std::atomic<size_t> head{0}, tail{0};
+    bool push(uint32_t p, const char *t, uint32_t len)
+    {
+        auto h = head.load(std::memory_order_relaxed);
+        auto n = (h + 1) % N;
+        if (n == tail.load(std::memory_order_acquire) || len >= LEN)
+            return false;
+        items[h].p = p;
+        items[h].len = len;
+        memcpy(items[h].text, t, len);
+        items[h].text[len] = 0;
+        head.store(n, std::memory_order_release);
+        return true;
+    }
+    bool pop(uint32_t &p, std::string &t)
+    {
+        auto tl = tail.load(std::memory_order_relaxed);
+        if (tl == head.load(std::memory_order_acquire))
+            return false;
+        p = items[tl].p;
+        t.assign(items[tl].text, items[tl].len);
+        tail.store((tl + 1) % N, std::memory_order_release);
+        return true;
+    }
+};
+
+namespace fs = std::filesystem;
+
+static bool natLess(const std::string &a, const std::string &b)
+{
+    size_t i = 0, j = 0;
+    while (i < a.size() && j < b.size())
+    {
+        if (isdigit((unsigned char)a[i]) && isdigit((unsigned char)b[j]))
+        {
+            size_t i2 = i, j2 = j;
+            while (i2 < a.size() && isdigit((unsigned char)a[i2]))
+                ++i2;
+            while (j2 < b.size() && isdigit((unsigned char)b[j2]))
+                ++j2;
+            auto na = std::stoull("0" + a.substr(i, std::min<size_t>(i2 - i, 18)));
+            auto nb = std::stoull("0" + b.substr(j, std::min<size_t>(j2 - j, 18)));
+            if (na != nb)
+                return na < nb;
+            i = i2;
+            j = j2;
+            continue;
+        }
+        auto ca = tolower((unsigned char)a[i]), cb = tolower((unsigned char)b[j]);
+        if (ca != cb)
+            return ca < cb;
+        ++i;
+        ++j;
+    }
+    return a.size() - i < b.size() - j;
+}
+
+static bool loadable(const fs::path &p)
+{
+    auto e = p.extension().string();
+    std::transform(e.begin(), e.end(), e.begin(), [](unsigned char c) { return (char)tolower(c); });
+    for (auto x : {".sfz", ".sf2", ".wav", ".flac", ".aif", ".aiff", ".ogg", ".mp3", ".multisample",
+                   ".gig", ".scm", ".scp"})
+        if (e == x)
+            return true;
+    return false;
+}
+
 struct Bridge::Impl
 {
     scxt::clap_first::scxt_plugin::SCXTPlugin *plugin{nullptr};
@@ -69,6 +153,12 @@ struct Bridge::Impl
     std::string bundlePath;
 
     Ring<1024> in, out;
+    StrRing strIn;
+    std::mutex strOutMutex;
+    std::deque<std::pair<uint32_t, std::string>> strOut;
+    std::atomic<bool> wantStrings{true};
+    std::string homeDir, defaultDir, configFile, curDir;
+    std::vector<std::string> favourites;
     std::atomic<bool> running{true}, wantAll{true}, structureChanged{true};
     std::mutex wakeMutex;
     std::condition_variable wake;
@@ -125,51 +215,190 @@ struct Bridge::Impl
             cmsg::detail::indexedZoneOrGroupDiffMsg_t<float>{false, (size_t)0, off, value});
     }
 
-    std::string instrumentPath(int index)
+    // ---- file browser ---------------------------------------------------
+    void initDirs()
     {
-        // instruments.txt in the bundle: one path per line, relative to the
-        // instruments folder (written by build_scxt.sh, same order as the panel)
-        std::ifstream f(bundlePath + "instruments.txt");
-        std::string line, base;
-        int i = 0;
+        const char *home = getenv("HOME");
+        if (!home || !*home)
+        {
+            // services (mod-host) may run without HOME
+            if (auto *pw = getpwuid(getuid()))
+                home = pw->pw_dir;
+        }
+        homeDir = home ? home : "/";
+        defaultDir = homeDir + "/.local/share/ShortCircuit-XT";
+        std::error_code ec;
+        fs::create_directories(defaultDir, ec);
+        if (!fs::is_directory(defaultDir) && fs::is_directory("/usr/share/ShortCircuit-XT"))
+            defaultDir = "/usr/share/ShortCircuit-XT";
+        configFile = homeDir + "/.config/ShortCircuit-XT/browser.txt";
+        curDir = defaultDir;
+        std::ifstream f(configFile);
+        std::string line;
         while (std::getline(f, line))
         {
-            if (line.rfind("#base ", 0) == 0)
-            {
-                base = line.substr(6);
-                continue;
-            }
-            if (line.empty() || line[0] == '#')
-                continue;
-            if (i++ == index)
-            {
-                if (!line.empty() && line[0] == '/')
-                    return line;
-                const char *home = getenv("HOME");
-                if (!home || !*home)
-                {
-                    // services (mod-host) may run without HOME
-                    if (auto *pw = getpwuid(getuid()))
-                        home = pw->pw_dir;
-                }
-                std::vector<std::string> bases;
-                if (!base.empty())
-                    bases.push_back(base);
-                if (home)
-                    bases.push_back(std::string(home) + "/.local/share/ShortCircuit-XT");
-                bases.push_back("/usr/share/ShortCircuit-XT");
-                for (auto &b : bases)
-                {
-                    auto p = b + "/" + line;
-                    if (std::ifstream(p).good())
-                        return p;
-                }
-                fprintf(stderr, "[scxt-lv2] instrument not found: %s\n", line.c_str());
-                return "";
-            }
+            if (line.rfind("last=", 0) == 0 && fs::is_directory(line.substr(5)))
+                curDir = line.substr(5);
+            else if (line.rfind("folder=", 0) == 0)
+                favourites.push_back(line.substr(7));
         }
-        fprintf(stderr, "[scxt-lv2] no instrument %d in instruments.txt\n", index);
-        return "";
+    }
+
+    void saveConfig()
+    {
+        std::error_code ec;
+        fs::create_directories(fs::path(configFile).parent_path(), ec);
+        std::ofstream f(configFile);
+        f << "# Shortcircuit XT LV2 panel: last folder and saved folders\n";
+        f << "last=" << curDir << "\n";
+        for (auto &d : favourites)
+            f << "folder=" << d << "\n";
+    }
+
+    void queueString(uint32_t p, const std::string &t)
+    {
+        std::lock_guard<std::mutex> g(strOutMutex);
+        strOut.emplace_back(p, t);
+    }
+
+    void sendFolders()
+    {
+        // "<default folder>|<saved>|<saved>..." - the first entry is the instruments folder
+        std::string t = defaultDir;
+        for (auto &d : favourites)
+            t += "|" + d;
+        if (t.size() > 450)
+            t.resize(450);
+        queueString(P_FOLDERS, t);
+    }
+
+    // The listing goes out in chunks short enough for mod-host's feedback
+    // messages (about 500 bytes): "<n>/<total>|<folder>|<entries>", entries
+    // separated by '|', each starting with D (folder) or F (file).
+    void sendListing(const std::string &dir)
+    {
+        std::vector<std::string> dirs, files;
+        std::error_code ec;
+        for (auto it = fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+             !ec && it != fs::directory_iterator(); it.increment(ec))
+        {
+            auto name = it->path().filename().string();
+            if (name.empty() || name[0] == '.' || name.find('|') != std::string::npos)
+                continue;
+            std::error_code e2;
+            if (it->is_directory(e2))
+                dirs.push_back(name);
+            else if (loadable(it->path()))
+                files.push_back(name);
+        }
+        std::sort(dirs.begin(), dirs.end(), natLess);
+        std::sort(files.begin(), files.end(), natLess);
+        std::vector<std::string> entries;
+        for (auto &d : dirs)
+            entries.push_back("D" + d);
+        for (auto &f : files)
+            entries.push_back("F" + f);
+
+        const size_t maxChunk = 420;
+        std::string shownDir = dir.size() > 200 ? dir.substr(dir.size() - 200) : dir;
+        std::vector<std::string> bodies(1);
+        for (auto &e : entries)
+        {
+            auto en = e.size() > 200 ? e.substr(0, 200) : e;
+            if (!bodies.back().empty() && bodies.back().size() + en.size() + 1 + shownDir.size() + 16 > maxChunk)
+                bodies.emplace_back();
+            if (!bodies.back().empty())
+                bodies.back() += "|";
+            bodies.back() += en;
+        }
+        if (bodies.size() > 400)
+            bodies.resize(400); // a few thousand entries at most
+        for (size_t i = 0; i < bodies.size(); ++i)
+            queueString(P_LISTING, std::to_string(i + 1) + "/" + std::to_string(bodies.size()) + "|" +
+                                       shownDir + "|" + bodies[i]);
+    }
+
+    void load(const std::string &path)
+    {
+        if (!fs::is_regular_file(path))
+        {
+            fprintf(stderr, "[scxt-lv2] file not found: %s\n", path.c_str());
+            return;
+        }
+        send<cmsg::SelectPart>((int16_t)0);
+        auto ext = fs::path(path).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)tolower(c); });
+        bool ownGroups = ext == ".sfz" || ext == ".sf2" || ext == ".multisample" || ext == ".gig" ||
+                         ext == ".scm" || ext == ".scp";
+        if (loadMode == 1)
+        {
+            send<cmsg::ClearPart>(0);
+            group = 0;
+            if (ownGroups)
+                send<cmsg::AddSample>(path);
+            else
+                send<cmsg::AddSampleToGroup>(cmsg::addSampleToGroupPayload_t{path, 0, 0});
+        }
+        else
+        {
+            // add: into a new group after the existing ones (an sfz etc. makes its own groups)
+            auto &part = engine->getPatch()->getPart(0);
+            int n = part ? (int)part->getGroups().size() : 0;
+            if (ownGroups)
+                send<cmsg::AddSample>(path);
+            else
+                send<cmsg::AddSampleToGroup>(cmsg::addSampleToGroupPayload_t{path, 0, n});
+            group = n;
+        }
+        fprintf(stderr, "[scxt-lv2] %s %s\n", loadMode == 1 ? "replace part 1 with" : "add to part 1:",
+                path.c_str());
+        // the load runs on Shortcircuit's own thread; read back when it is done
+        holdReadback = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
+        structureChanged = true;
+        wantAll = true;
+    }
+
+    void applyString(uint32_t p, const std::string &t)
+    {
+        switch (p)
+        {
+        case P_BROWSE:
+        {
+            std::string dir = t.empty() ? curDir : t;
+            std::error_code ec;
+            auto canon = fs::weakly_canonical(dir, ec).string();
+            if (!ec && !canon.empty())
+                dir = canon;
+            if (!fs::is_directory(dir))
+                dir = defaultDir;
+            if (dir != curDir)
+            {
+                curDir = dir;
+                saveConfig();
+            }
+            sendListing(curDir);
+            break;
+        }
+        case P_LOAD_PATH:
+            load(t);
+            break;
+        case P_FOLDER_ADD:
+            if (fs::is_directory(t) && t != defaultDir &&
+                std::find(favourites.begin(), favourites.end(), t) == favourites.end())
+            {
+                favourites.push_back(t);
+                saveConfig();
+            }
+            sendFolders();
+            break;
+        case P_FOLDER_REMOVE:
+            favourites.erase(std::remove(favourites.begin(), favourites.end(), t), favourites.end());
+            saveConfig();
+            sendFolders();
+            break;
+        default:
+            break;
+        }
     }
 
     void apply(uint32_t p, float v)
@@ -185,44 +414,6 @@ struct Bridge::Impl
         case P_LOAD_MODE:
             loadMode = iv;
             return;
-        case P_INSTRUMENT:
-        {
-            if (iv < 0)
-                return;
-            auto path = instrumentPath(iv);
-            if (path.empty())
-                return;
-            send<cmsg::SelectPart>((int16_t)0);
-            bool isSfz = path.size() > 4 && (path.compare(path.size() - 4, 4, ".sfz") == 0 ||
-                                             path.compare(path.size() - 4, 4, ".SFZ") == 0);
-            if (loadMode == 1)
-            {
-                send<cmsg::ClearPart>(0);
-                group = 0;
-                if (isSfz)
-                    send<cmsg::AddSample>(path);
-                else
-                    send<cmsg::AddSampleToGroup>(cmsg::addSampleToGroupPayload_t{path, 0, 0});
-            }
-            else
-            {
-                // add: into a new group after the existing ones (an sfz makes its own groups)
-                auto &part = engine->getPatch()->getPart(0);
-                int n = part ? (int)part->getGroups().size() : 0;
-                if (isSfz)
-                    send<cmsg::AddSample>(path);
-                else
-                    send<cmsg::AddSampleToGroup>(cmsg::addSampleToGroupPayload_t{path, 0, n});
-                group = n;
-            }
-            fprintf(stderr, "[scxt-lv2] %s instrument %s\n", loadMode == 1 ? "replace with" : "add",
-                    path.c_str());
-            // the load runs on Shortcircuit's own thread; read back when it is done
-            holdReadback = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
-            structureChanged = true;
-            wantAll = true;
-            return;
-        }
         default:
             break;
         }
@@ -281,7 +472,6 @@ struct Bridge::Impl
             group = n > 0 ? n - 1 : 0;
         vals[P_GROUP] = (float)group;
         vals[P_LOAD_MODE] = (float)loadMode;
-        vals[P_INSTRUMENT] = -1;
         vals[P_LOADED] = loadedCounter;
         if (n == 0)
             return true;
@@ -326,10 +516,8 @@ struct Bridge::Impl
             vals[P_LOADED] = loadedCounter;
             all = true;
         }
-        for (uint32_t i = 0; i < P_NUM; ++i)
+        for (uint32_t i = 0; i < P_FIRST_STRING; ++i)
         {
-            if (i == P_INSTRUMENT)
-                continue;
             if (all || !sentValid[i] || vals[i] != sent[i])
             {
                 if (out.push(i, vals[i]))
@@ -369,11 +557,19 @@ struct Bridge::Impl
             {
                 apply(q, pending[q]);
                 // the panel already shows what it sent
-                if (q != P_INSTRUMENT && q != P_GROUP)
+                if (q != P_GROUP)
                 {
                     sent[q] = pending[q];
                     sentValid[q] = true;
                 }
+            }
+            std::string text;
+            while (strIn.pop(p, text))
+                applyString(p, text);
+            if (wantStrings.exchange(false))
+            {
+                sendFolders();
+                sendListing(curDir);
             }
             if (!order.empty())
                 std::this_thread::sleep_for(std::chrono::milliseconds(30)); // let it apply
@@ -392,6 +588,7 @@ Bridge::Bridge(const clap_plugin_t *plugin, const std::string &bundlePath)
     impl->bundlePath = bundlePath;
     if (!impl->bundlePath.empty() && impl->bundlePath.back() != '/')
         impl->bundlePath += '/';
+    impl->initDirs();
     impl->worker = std::thread([this]() { impl->loop(); });
 }
 
@@ -409,7 +606,30 @@ void Bridge::post(uint32_t param, float value)
     impl->wake.notify_one(); // notify without the mutex: does not block
 }
 
-void Bridge::requestAll() { impl->wantAll = true; }
+void Bridge::requestAll()
+{
+    impl->wantAll = true;
+    impl->wantStrings = true;
+}
+
+void Bridge::postString(uint32_t param, const char *text, uint32_t len)
+{
+    impl->strIn.push(param, text, len);
+    impl->wake.notify_one();
+}
+
+bool Bridge::popOutString(uint32_t &param, char *buf, uint32_t cap, uint32_t &len)
+{
+    std::unique_lock<std::mutex> lk(impl->strOutMutex, std::try_to_lock);
+    if (!lk.owns_lock() || impl->strOut.empty())
+        return false;
+    auto &f = impl->strOut.front();
+    param = f.first;
+    len = (uint32_t)std::min<size_t>(f.second.size(), cap);
+    memcpy(buf, f.second.data(), len);
+    impl->strOut.pop_front();
+    return true;
+}
 
 bool Bridge::popOut(uint32_t &param, float &value) { return impl->out.pop(param, value); }
 
