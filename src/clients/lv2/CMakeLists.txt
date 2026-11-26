@@ -25,9 +25,11 @@ else()
 endif()
 
 # The LV2 plugin, with Shortcircuit XT linked in
-add_library(scxt_lv2 MODULE clap2lv2.cpp)
+add_library(scxt_lv2 MODULE clap2lv2.cpp scxt_bridge.cpp)
 target_include_directories(scxt_lv2 PRIVATE ${SCXT_LV2_INCLUDES} ${X11_INCLUDE_DIR})
-target_link_libraries(scxt_lv2 PRIVATE scxt-plugin ${X11_LIBRARIES} Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(scxt_lv2 PRIVATE scxt-plugin scxt-core clap-helpers clap_juce_shim_headers
+                                       clap-wrapper-extensions fmt
+                                       ${X11_LIBRARIES} Threads::Threads ${CMAKE_DL_LIBS})
 # export only the LV2 entry points (and the build-time plugin entry), keep the
 # statically linked Shortcircuit/JUCE symbols private to this plugin
 target_link_options(scxt_lv2 PRIVATE -Wl,--exclude-libs,ALL)

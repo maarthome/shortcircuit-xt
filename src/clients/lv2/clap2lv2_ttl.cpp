@@ -24,6 +24,7 @@
  */
 
 #include "clap_host.h"
+#include "scxt_params.h"
 
 #include <cstdlib>
 #include <dlfcn.h>
@@ -221,7 +222,7 @@ int main(int argc, char **argv)
     ports << "    lv2:port [\n"
              "        a lv2:InputPort , atom:AtomPort ;\n"
              "        atom:bufferType atom:Sequence ;\n"
-             "        atom:supports midi:MidiEvent , time:Position ;\n"
+             "        atom:supports midi:MidiEvent , time:Position , patch:Message ;\n"
              "        lv2:designation lv2:control ;\n"
              "        lv2:index 0 ;\n"
              "        lv2:symbol \"events_in\" ;\n"
@@ -236,6 +237,15 @@ int main(int argc, char **argv)
              "        lv2:index 2 ;\n"
              "        lv2:symbol \"out_r\" ;\n"
              "        lv2:name \"Out R\"\n"
+             "    ] , [\n"
+             "        a lv2:OutputPort , atom:AtomPort ;\n"
+             "        atom:bufferType atom:Sequence ;\n"
+             "        atom:supports patch:Message ;\n"
+             "        lv2:designation lv2:control ;\n"
+             "        rsz:minimumSize 8192 ;\n"
+             "        lv2:index 3 ;\n"
+             "        lv2:symbol \"events_out\" ;\n"
+             "        lv2:name \"Panel Out\"\n"
              "    ]";
 
     for (uint32_t i = 0; i < np; ++i)
@@ -270,7 +280,7 @@ int main(int argc, char **argv)
 
         ports << " , [\n"
               << "        a lv2:InputPort , lv2:ControlPort ;\n"
-              << "        lv2:index " << (3 + i) << " ;\n"
+              << "        lv2:index " << (4 + i) << " ;\n"
               << "        lv2:symbol \"p" << i << "\" ;\n"
               << "        lv2:name \"" << esc(stripPart1(displayName(info.name, shortNames), np <= 16)) << "\" ;\n"
               << "        lv2:default " << info.default_value << " ;\n"
@@ -285,6 +295,31 @@ int main(int argc, char **argv)
         if (!gsym.empty())
             ports << " ;\n        pg:group <" << CLAP2LV2_URI << "-" << gsym << ">";
         ports << "\n    ]";
+    }
+
+    // the MOD panel's parameters (scxt_params.h)
+    std::ostringstream panelParams, writable, readable;
+    {
+        std::string w, r;
+        for (uint32_t i = 0; i < scxt_lv2::P_NUM; ++i)
+        {
+            const auto &d = scxt_lv2::paramDefs[i];
+            std::string uri = std::string("<") + CLAP2LV2_URI + "-" + d.key + ">";
+            panelParams << uri << "\n"
+                   << "    a lv2:Parameter ;\n"
+                   << "    rdfs:label \"" << esc(d.label) << "\" ;\n"
+                   << "    rdfs:range atom:Float ;\n"
+                   << "    lv2:default " << d.def << " ;\n"
+                   << "    lv2:minimum " << d.min << " ;\n"
+                   << "    lv2:maximum " << d.max << " .\n\n";
+            (d.writable ? w : r) += (w.empty() && d.writable) || (r.empty() && !d.writable)
+                                        ? uri
+                                        : " ,\n        " + uri;
+        }
+        if (!w.empty())
+            writable << "    patch:writable " << w << " ;\n";
+        if (!r.empty())
+            readable << "    patch:readable " << r << " ;\n";
     }
 
     std::string name = desc && desc->name ? desc->name : "CLAP plugin";
@@ -329,8 +364,10 @@ int main(int argc, char **argv)
            "@prefix time: <http://lv2plug.in/ns/ext/time#> .\n"
            "@prefix ui:   <http://lv2plug.in/ns/extensions/ui#> .\n"
            "@prefix mod:  <http://moddevices.com/ns/mod#> .\n"
+           "@prefix patch: <http://lv2plug.in/ns/ext/patch#> .\n"
+           "@prefix rsz:  <http://lv2plug.in/ns/ext/resize-port#> .\n"
            "@prefix urid: <http://lv2plug.in/ns/ext/urid#> .\n\n"
-        << groups.str() << "<" << CLAP2LV2_URI << ">\n"
+        << groups.str() << panelParams.str() << "<" << CLAP2LV2_URI << ">\n"
         << "    a lv2:Plugin , lv2:InstrumentPlugin ;\n"
         << "    doap:name \"" << esc(name) << "\" ;\n"
         << "    doap:license <https://www.gnu.org/licenses/gpl-3.0> ;\n"
@@ -345,7 +382,7 @@ int main(int argc, char **argv)
         << "    lv2:extensionData state:interface ;\n";
     if (hasUi)
         ttl << "    ui:ui <" << CLAP2LV2_URI << "-ui> ;\n";
-    ttl << ports.str() << " .\n";
+    ttl << writable.str() << readable.str() << ports.str() << " .\n";
     if (hasUi)
         ttl << "\n<" << CLAP2LV2_URI << "-ui>\n"
             << "    a ui:X11UI ;\n"

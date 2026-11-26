@@ -10,13 +10,15 @@
  * two .ttl files written by scxt-lv2-ttl. Port layout (must match clap2lv2-ttl.cpp):
  *   0        atom input  (MIDI + time:Position)
  *   1, 2     audio out L / R (the CLAP "Main Out")
- *   3 + i    control input for CLAP parameter index i
+ *   3        atom output (patch:Set of the panel parameters, scxt_params.h)
+ *   4 + i    control input for CLAP parameter index i (macros)
  *
  * The whole plugin state (patch, samples paths, macros...) is stored as one
  * LV2 state property holding the CLAP state blob.
  */
 
 #include "clap_host.h"
+#include "scxt_bridge.h"
 
 #include <lv2/atom/atom.h>
 #include <lv2/atom/util.h>
@@ -29,6 +31,8 @@
 #include <lv2/time/time.h>
 #include <lv2/ui/ui.h>
 #include <lv2/urid/urid.h>
+#include <lv2/atom/forge.h>
+#include <lv2/patch/patch.h>
 
 #include <X11/Xlib.h>
 
@@ -67,7 +71,8 @@ enum PortIndex : uint32_t
     PORT_EVENTS_IN = 0,
     PORT_OUT_L = 1,
     PORT_OUT_R = 2,
-    PORT_FIRST_PARAM = 3
+    PORT_EVENTS_OUT = 3,
+    PORT_FIRST_PARAM = 4
 };
 
 // ---------------------------------------------------------------------------
@@ -125,6 +130,8 @@ struct Plugin
     LV2_URID_Map *map{nullptr};
     struct
     {
+        LV2_URID patchSet, patchGet, patchProperty, patchValue, atomURID, atomSequence;
+        LV2_URID paramUrid[scxt_lv2::P_NUM];
         LV2_URID midiEvent, atomObject, atomBlank, atomChunk, atomFloat, atomDouble, atomInt,
             atomLong, timePosition, timeBpm, timeSpeed, timeBar, timeBarBeat, timeBeatsPerBar,
             timeBeatUnit, stateKey, bufMaxBlock, bufNominalBlock;
@@ -137,6 +144,9 @@ struct Plugin
     int64_t steadyTime{0};
 
     const LV2_Atom_Sequence *eventsIn{nullptr};
+    LV2_Atom_Sequence *eventsOut{nullptr};
+    LV2_Atom_Forge forge{};
+    std::unique_ptr<scxt_lv2::Bridge> bridge;
     float *outL{nullptr}, *outR{nullptr};
     std::vector<float> scratchL, scratchR;
 
@@ -181,6 +191,15 @@ struct Plugin
         u.timeBeatsPerBar = m(LV2_TIME__beatsPerBar);
         u.timeBeatUnit = m(LV2_TIME__beatUnit);
         u.stateKey = m(CLAP2LV2_STATE_KEY);
+        u.patchSet = m(LV2_PATCH__Set);
+        u.patchGet = m(LV2_PATCH__Get);
+        u.patchProperty = m(LV2_PATCH__property);
+        u.patchValue = m(LV2_PATCH__value);
+        u.atomURID = m(LV2_ATOM__URID);
+        u.atomSequence = m(LV2_ATOM__Sequence);
+        for (uint32_t i = 0; i < scxt_lv2::P_NUM; ++i)
+            u.paramUrid[i] = m((std::string(CLAP2LV2_URI) + "-" + scxt_lv2::paramDefs[i].key).c_str());
+        lv2_atom_forge_init(&forge, map);
         u.bufMaxBlock = m(LV2_BUF_SIZE__maxBlockLength);
         u.bufNominalBlock = m(LV2_BUF_SIZE__nominalBlockLength);
 
@@ -215,6 +234,7 @@ struct Plugin
             return false;
         }
         host.attach(clap);
+        bridge = std::make_unique<scxt_lv2::Bridge>(clap, bundlePath);
 
         params = (const clap_plugin_params_t *)clap->get_extension(clap, CLAP_EXT_PARAMS);
         state = (const clap_plugin_state_t *)clap->get_extension(clap, CLAP_EXT_STATE);
@@ -260,6 +280,7 @@ struct Plugin
 
     ~Plugin()
     {
+        bridge.reset();
         if (clap)
         {
             if (activated)
@@ -276,6 +297,9 @@ struct Plugin
     {
         switch (port)
         {
+        case PORT_EVENTS_OUT:
+            eventsOut = (LV2_Atom_Sequence *)data;
+            break;
         case PORT_EVENTS_IN:
             eventsIn = (const LV2_Atom_Sequence *)data;
             break;
@@ -374,6 +398,47 @@ struct Plugin
         }
     }
 
+    // panel -> plugin: patch:Set of one of the scxt_params.h parameters
+    void readPatchSet(const LV2_Atom_Object *obj)
+    {
+        const LV2_Atom *prop = nullptr, *val = nullptr;
+        lv2_atom_object_get(obj, u.patchProperty, &prop, u.patchValue, &val, 0);
+        if (!prop || prop->type != u.atomURID || !val)
+            return;
+        auto key = ((const LV2_Atom_URID *)prop)->body;
+        for (uint32_t i = 0; i < scxt_lv2::P_NUM; ++i)
+            if (u.paramUrid[i] == key)
+            {
+                bridge->post(i, (float)atomNumber(val, 0));
+                return;
+            }
+    }
+
+    // plugin -> panel: patch:Set for every value the bridge reports
+    void writePanelValues()
+    {
+        if (!eventsOut)
+            return;
+        const uint32_t capacity = eventsOut->atom.size;
+        lv2_atom_forge_set_buffer(&forge, (uint8_t *)eventsOut, capacity);
+        LV2_Atom_Forge_Frame seq;
+        lv2_atom_forge_sequence_head(&forge, &seq, 0);
+        uint32_t p;
+        float v;
+        while (bridge && capacity > 256 && forge.offset + 96 < capacity && bridge->popOut(p, v))
+        {
+            LV2_Atom_Forge_Frame obj;
+            lv2_atom_forge_frame_time(&forge, 0);
+            lv2_atom_forge_object(&forge, &obj, 0, u.patchSet);
+            lv2_atom_forge_key(&forge, u.patchProperty);
+            lv2_atom_forge_urid(&forge, u.paramUrid[p]);
+            lv2_atom_forge_key(&forge, u.patchValue);
+            lv2_atom_forge_float(&forge, v);
+            lv2_atom_forge_pop(&forge, &obj);
+        }
+        lv2_atom_forge_pop(&forge, &seq);
+    }
+
     void run(uint32_t n)
     {
         if (!clap)
@@ -382,6 +447,7 @@ struct Plugin
         float *r = outR ? outR : scratchR.data();
         if (!activated || n == 0 || n > maxBlock)
         {
+            writePanelValues();
             if (l)
                 memset(l, 0, sizeof(float) * n);
             if (r)
@@ -450,6 +516,10 @@ struct Plugin
                     auto *obj = (const LV2_Atom_Object *)&ev->body;
                     if (obj->body.otype == u.timePosition)
                         readPosition(obj);
+                    else if (obj->body.otype == u.patchSet && bridge)
+                        readPatchSet(obj);
+                    else if (obj->body.otype == u.patchGet && bridge)
+                        bridge->requestAll();
                 }
             }
         }
@@ -469,6 +539,7 @@ struct Plugin
         proc.out_events = &outEvents.list;
 
         clap->process(clap, &proc);
+        writePanelValues();
         host.audioThread = std::thread::id(); // outside run() no thread is "audio"
         steadyTime += n;
 
@@ -571,6 +642,8 @@ struct Plugin
                           }};
         if (!state->load(clap, &is))
             return LV2_STATE_ERR_UNKNOWN;
+        if (bridge)
+            bridge->stateChanged();
 
         // pick up the restored parameter values so they are not overwritten by
         // stale port values; the host sends new values afterwards if it has them
