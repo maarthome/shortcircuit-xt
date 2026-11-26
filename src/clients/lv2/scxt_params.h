@@ -38,6 +38,9 @@ enum ParamId : uint32_t
     P_POLY_LIMIT,     // 0 = part's limit, else voices
     P_EXCLUSIVE,      // exclusive group, 0 = off
     P_VEL_SENS,       // velocity sensitivity 0..1
+    P_PROC_ROUTING,   // effect routing: 0 S1 (1>2>3>4), 1 S2, 2 S3, 3 P1, 4 P2, 5 P3, 6 bypass
+    P_ROUTE_TO,       // output: -1 default (part), 0 main, 1..16 bus, 17..20 aux
+    P_OVERSAMPLE,     // 0 off, 1 auto, 2 on
 
     // group EG1 (amp envelope), engine::Group::gegStorage[0]; times 0..1
     P_EG_DLY,
@@ -58,6 +61,9 @@ enum ParamId : uint32_t
     P_FX_DESC,        // plugin -> panel: one slot's controls (names, ranges, choices), chunked
     P_FX_VALUES,      // plugin -> panel: one slot's values and their display texts, chunked
     P_FX_EDIT,        // panel -> plugin: "<slot>,<t|a|m|l|f|i>,<index>,<value>"
+    P_MOD_META,       // plugin -> panel: mod matrix sources, targets and curves, chunked
+    P_MOD_ROWS,       // plugin -> panel: the 18 mod matrix rows, chunked
+    P_MOD_EDIT,       // panel -> plugin: "<row>,<a|s|v|c|t|d>,<value>"
 
     P_NUM
 };
@@ -94,6 +100,9 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"group_exclusive", "Exclusive group", 0, 32, 0, true, true},
     {"group_vel_sens", "Velocity", 0, 1, 0.6f, true, false},
 
+    {"group_proc_routing", "Effect routing", 0, 6, 0, true, true},
+    {"group_route_to", "Output", -1, 20, -1, true, true},
+    {"group_oversample", "Oversample", 0, 2, 1, true, true},
     {"eg1_delay", "Dly", 0, 1, 0, true, false},
     {"eg1_attack", "A", 0, 1, 0, true, false},
     {"eg1_hold", "H", 0, 1, 0, true, false},
@@ -111,6 +120,9 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"fx_desc", "Effect controls", 0, 0, 0, false, false},
     {"fx_values", "Effect values", 0, 0, 0, false, false},
     {"fx_edit", "Effect edit", 0, 0, 0, true, false},
+    {"mod_meta", "Mod matrix lists", 0, 0, 0, false, false},
+    {"mod_rows", "Mod matrix rows", 0, 0, 0, false, false},
+    {"mod_edit", "Mod matrix edit", 0, 0, 0, true, false},
 };
 
 } // namespace scxt_lv2

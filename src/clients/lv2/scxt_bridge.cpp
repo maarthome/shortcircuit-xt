@@ -38,6 +38,10 @@ using AdsrStorage = scxt::modulation::modulators::AdsrStorage;
 using ProcStorage = scxt::dsp::processor::ProcessorStorage;
 using ProcDesc = scxt::dsp::processor::ProcessorControlDescription;
 static constexpr int numFx = scxt::processorsPerZoneAndGroup;
+static constexpr int numModRows = scxt::modMatrixRowsPerGroup;
+using GMRouting = scxt::modulation::GroupMatrix::RoutingTable::Routing;
+using GMSource = scxt::modulation::GroupMatrixConfig::SourceIdentifier;
+using GMTarget = scxt::modulation::GroupMatrixConfig::TargetIdentifier;
 
 // Single producer / single consumer ring of (param, value) pairs
 template <size_t N> struct Ring
@@ -166,6 +170,7 @@ struct Bridge::Impl
     // effect descriptions: the worker asks (descRequest = group), the audio thread
     // copies them between process calls and sets descReady
     std::array<ProcDesc, numFx> descSnap;
+    scxt::modulation::groupMatrixMetadata_t metaSnap;
     std::atomic<int> descRequest{-1};
     std::atomic<bool> descReady{false};
 
@@ -175,6 +180,12 @@ struct Bridge::Impl
     int descGroup{-1}, descRequestedGroup{-1};
     bool descValid{false};
     std::array<std::string, numFx> sentFxValues;
+    std::string sentModRows;
+    // rows as last edited here: the engine applies edits asynchronously, so several edits
+    // in a row must build on each other, not on the engine's not-yet-updated copy
+    std::array<GMRouting, numModRows> rowShadow{};
+    std::array<std::chrono::steady_clock::time_point, numModRows> rowShadowTime{};
+    int rowShadowGroup{-1};
     int group{0};
     int loadMode{0};
     float loadedCounter{0};
@@ -214,6 +225,14 @@ struct Bridge::Impl
         else
             send<cmsg::UpdateGroupOutputInt32TValue>(
                 cmsg::detail::diffMsg_t<int32_t>{off, (int32_t)value});
+    }
+
+    template <typename T> void groupFieldAs16(T GroupOutputInfo::*member, int16_t value)
+    {
+        static_assert(sizeof(T) == sizeof(int16_t));
+        GroupOutputInfo dummy{};
+        auto off = (ptrdiff_t)((uint8_t *)&(dummy.*member) - (uint8_t *)&dummy);
+        send<cmsg::UpdateGroupOutputInt16TValue>(cmsg::detail::diffMsg_t<int16_t>{off, value});
     }
 
     void egField(float AdsrStorage::*member, float value)
@@ -359,6 +378,8 @@ struct Bridge::Impl
             }
             descGroup = group;
             descValid = true;
+            sendChunked(P_MOD_META, "M", modMetaText(metaSnap));
+            sentModRows.clear();
             for (int s = 0; s < numFx; ++s)
             {
                 // the slot changed type again meanwhile: try again
@@ -366,6 +387,14 @@ struct Bridge::Impl
                     descValid = false;
                 sendChunked(P_FX_DESC, std::to_string(s), fxDescText(s));
                 sentFxValues[s].clear();
+            }
+        }
+        {
+            auto rows = modRowsText(g);
+            if (rows != sentModRows)
+            {
+                sentModRows = rows;
+                sendChunked(P_MOD_ROWS, "R", rows);
             }
         }
         for (int s = 0; s < numFx; ++s)
@@ -429,6 +458,132 @@ struct Bridge::Impl
         default:
             break;
         }
+    }
+
+    // ---- group mod matrix --------------------------------------------------
+    template <typename I> static std::string ident(const std::optional<I> &i)
+    {
+        if (!i.has_value())
+            return "";
+        return std::to_string(i->gid) + "." + std::to_string(i->tid) + "." + std::to_string(i->index);
+    }
+    template <typename I> static std::optional<I> parseIdent(const std::string &t)
+    {
+        unsigned g, ti, ix;
+        if (sscanf(t.c_str(), "%u.%u.%u", &g, &ti, &ix) != 3)
+            return std::nullopt;
+        I r;
+        r.gid = g;
+        r.tid = ti;
+        r.index = ix;
+        return r;
+    }
+
+    // "S|<id>^<path>^<name>~...|T|<id>^<path>^<name>~...|C|<id>^<path>^<name>~..."
+    std::string modMetaText(const scxt::modulation::groupMatrixMetadata_t &m)
+    {
+        std::string t = "S|";
+        bool first = true;
+        for (auto &[src, nm] : std::get<1>(m))
+        {
+            t += (first ? "" : "~") + ident(std::optional<GMSource>(src)) + "^" + clean(nm.first) +
+                 "^" + clean(nm.second);
+            first = false;
+        }
+        t += "|T|";
+        first = true;
+        for (auto &nt : std::get<2>(m))
+        {
+            if (!std::get<3>(nt))
+                continue; // not enabled
+            auto &dn = std::get<1>(nt);
+            t += (first ? "" : "~") + ident(std::optional<GMTarget>(std::get<0>(nt))) + "^" +
+                 clean(scxt::modulation::displayPath(dn)) + "^" + clean(std::get<1>(dn));
+            first = false;
+        }
+        t += "|C|";
+        first = true;
+        for (auto &[c, nm] : std::get<3>(m))
+        {
+            t += (first ? "" : "~") + std::to_string(c) + "^" + clean(nm.first) + "^" +
+                 clean(nm.second);
+            first = false;
+        }
+        return t;
+    }
+
+    // rows "<active>^<source>^<via>^<curve>^<target>^<depth>" joined with '~'
+    std::string modRowsText(const scxt::engine::Group &g)
+    {
+        std::string t;
+        for (int i = 0; i < numModRows; ++i)
+        {
+            const auto &r = g.routingTable.routes[i];
+            auto src = r.source;
+            auto via = r.sourceVia;
+            auto tgt = r.target;
+            auto crv = r.curve;
+            t += (i ? "~" : "") + std::string(r.active ? "1" : "0") + "^" + ident(src) + "^" +
+                 ident(via) + "^" + (crv.has_value() ? std::to_string(*crv) : std::string()) +
+                 "^" + ident(tgt) + "^" + num(r.depth);
+        }
+        return t;
+    }
+
+    void applyModEdit(const std::string &t)
+    {
+        // "<row>,<field>,<value>"
+        auto c1 = t.find(','), c2 = c1 == std::string::npos ? c1 : t.find(',', c1 + 1);
+        if (c2 == std::string::npos || c2 != c1 + 2)
+            return;
+        int row = atoi(t.substr(0, c1).c_str());
+        char field = t[c1 + 1];
+        auto val = t.substr(c2 + 1);
+        if (row < 0 || row >= numModRows)
+            return;
+        auto &patch = engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        if (!part || group >= (int)part->getGroups().size())
+            return;
+        // start from the row as it is (read like the editor's display), change one field
+        auto now = std::chrono::steady_clock::now();
+        bool useShadow = rowShadowGroup == group && now - rowShadowTime[row] < std::chrono::seconds(2);
+        const auto &cur = useShadow ? rowShadow[row] : part->getGroup(group)->routingTable.routes[row];
+        GMRouting r;
+        r.active = cur.active;
+        r.source = cur.source;
+        r.sourceVia = cur.sourceVia;
+        r.target = cur.target;
+        r.curve = cur.curve;
+        r.sourceLagMS = cur.sourceLagMS;
+        r.sourceViaLagMS = cur.sourceViaLagMS;
+        r.sourceLagExp = cur.sourceLagExp;
+        r.sourceViaLagExp = cur.sourceViaLagExp;
+        r.applicationMode = cur.applicationMode;
+        r.depth = cur.depth;
+        switch (field)
+        {
+        case 'a': r.active = val == "1"; break;
+        case 's': r.source = parseIdent<GMSource>(val); break;
+        case 'v': r.sourceVia = parseIdent<GMSource>(val); break;
+        case 't': r.target = parseIdent<GMTarget>(val); break;
+        case 'c':
+            if (val.empty())
+                r.curve = std::nullopt;
+            else
+                r.curve = (scxt::modulation::GroupMatrixConfig::CurveIdentifier)strtoul(val.c_str(), nullptr, 10);
+            break;
+        case 'd': r.depth = std::clamp((float)atof(val.c_str()), -1.f, 1.f); break;
+        default: return;
+        }
+        if (rowShadowGroup != group)
+            rowShadowTime.fill({});
+        rowShadowGroup = group;
+        rowShadow[row] = r;
+        rowShadowTime[row] = now;
+        selectGroup();
+        send<cmsg::UpdateGroupRoutingRow>(cmsg::updateGroupRoutingRowPayload_t{row, r, field != 'd'});
+        sentModRows.clear();
     }
 
     // ---- file browser ---------------------------------------------------
@@ -613,6 +768,9 @@ struct Bridge::Impl
         case P_FX_EDIT:
             applyFxEdit(t);
             break;
+        case P_MOD_EDIT:
+            applyModEdit(t);
+            break;
         case P_FOLDER_REMOVE:
             favourites.erase(std::remove(favourites.begin(), favourites.end(), t), favourites.end());
             saveConfig();
@@ -667,6 +825,9 @@ struct Bridge::Impl
                 groupField(&GroupOutputInfo::polyLimit, (int32_t)iv);
             groupField(&GroupOutputInfo::hasIndependentPolyLimit, iv > 0);
             break;
+        case P_PROC_ROUTING: groupFieldAs16(&GroupOutputInfo::procRouting, (int16_t)iv); break;
+        case P_ROUTE_TO: groupFieldAs16(&GroupOutputInfo::routeTo, (int16_t)iv); break;
+        case P_OVERSAMPLE: groupFieldAs16(&GroupOutputInfo::oversample, (int16_t)iv); break;
         case P_EG_DLY: egField(&AdsrStorage::dly, v); break;
         case P_EG_A: egField(&AdsrStorage::a, v); break;
         case P_EG_H: egField(&AdsrStorage::h, v); break;
@@ -714,6 +875,9 @@ struct Bridge::Impl
         vals[P_POLY_LIMIT] = o.hasIndependentPolyLimit ? (float)o.polyLimit : 0.f;
         vals[P_EXCLUSIVE] = (float)o.exclusiveGroup;
         vals[P_VEL_SENS] = o.velocitySensitivity;
+        vals[P_PROC_ROUTING] = (float)o.procRouting;
+        vals[P_ROUTE_TO] = (float)o.routeTo;
+        vals[P_OVERSAMPLE] = (float)o.oversample;
         const auto &eg = g->gegStorage[0];
         vals[P_EG_DLY] = eg.dly;
         vals[P_EG_A] = eg.a;
@@ -871,12 +1035,14 @@ void Bridge::audioTick()
     auto *part = patch ? patch->getPart(0).get() : nullptr;
     for (int s = 0; s < numFx; ++s)
         impl->descSnap[s] = {};
+    impl->metaSnap = {};
     if (part && g < (int)part->getGroups().size())
     {
         // (rare: only when the group or an effect type changes)
         auto &grp = part->getGroup(g);
         for (int s = 0; s < numFx; ++s)
             impl->descSnap[s] = grp->processorDescription[s];
+        impl->metaSnap = scxt::modulation::getGroupMatrixMetadata(*grp);
     }
     impl->descRequest.store(-1, std::memory_order_release);
     impl->descReady.store(true, std::memory_order_release);

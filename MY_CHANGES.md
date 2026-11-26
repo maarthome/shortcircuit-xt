@@ -63,12 +63,18 @@ The bundle includes a panel for MOD-UI, from top to bottom:
   that effect's own controls with their names, ranges and value texts from Shortcircuit
   (e.g. Cutoff "43.65 Hz"), Mix and Level knobs, and its choice settings (e.g. Passband) as
   drop-downs. Double-click a knob for its default.
+  Above the slots, the group's **routing**: effect routing (S1 `1>2>3>4`, S2, S3, P1 `1|2|3|4`,
+  P2, P3, bypass all), output (default/part, main, bus 1–16, aux 1–4) and oversampling.
+- **Group mod matrix:** the group's 18 rows, each with on/off, source, via, curve, target and
+  depth (drag left/right, Shift for fine, double-click for 0). The lists are Shortcircuit's own
+  (LFOs, EGs, MIDI, macros, random, ... and every effect parameter as target, shown as
+  "P1 Fast SVF › Cutoff").
 - **Macros 1–16** (the control ports, also on the pi-Stomp display and knobs).
 
 How it works: the panel sets LV2 patch parameters (`scxt_params.h`). The plugin hands them to a
 worker thread (`scxt_bridge.cpp`) that sends the same engine messages as Shortcircuit XT's own
 editor: select group, change a group field, change an EG value, set an effect type or value,
-clear part, load a sample or `.sfz`. Every 200 ms it reads the selected group's values back and sends changes to the panel
+change a mod matrix row, clear part, load a sample or `.sfz`. Every 200 ms it reads the selected group's values back and sends changes to the panel
 (atom output port `events_out`), so the panel follows presets, loads and the editor. The effect
 controls (names, ranges, choices) are copied in the audio thread between two process calls when
 an effect type changes, and sent to the panel as text.
@@ -77,7 +83,7 @@ The plugin lists the folders itself (the listing goes to the panel in pieces of 
 characters, because mod-host passes at most about 500 per message) and loads files by their full
 path, so new files on the pi-Stomp or a USB stick show up straight away.
 
-Still to come: mod matrix, routing, EG2–5 and LFO1–4; selecting files with the pi-Stomp's
+Still to come: EG2–5 and LFO1–4; selecting files with the pi-Stomp's
 own display and buttons.
 
 ## Building on the dev Pi 5

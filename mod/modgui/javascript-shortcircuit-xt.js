@@ -278,18 +278,22 @@ function (event, funcs) {
         return whole;
     }
 
-    function fxEdit(d, slot, kind, index, v) {
-        // at most one message per control every 40 ms while dragging; the last value always goes
-        var key = slot + kind + index, q = d.fxQueue = d.fxQueue || {};
+    // at most one message per control every 40 ms while dragging; the last value always goes
+    function sendText(d, uriKey, key, text) {
+        var q = d.textQueue = d.textQueue || {};
+        key = uriKey + ':' + key;
         var first = !q[key];
-        q[key] = slot + ',' + kind + ',' + index + ',' + v;
+        q[key] = text;
         if (!first) return;
-        funcs.patch_set(U('fx_edit'), 's', q[key]);
-        var last = q[key];
+        funcs.patch_set(U(uriKey), 's', text);
+        var last = text;
         setTimeout(function flush() {
-            if (q[key] !== last) { last = q[key]; funcs.patch_set(U('fx_edit'), 's', last); setTimeout(flush, 40); }
+            if (q[key] !== last) { last = q[key]; funcs.patch_set(U(uriKey), 's', last); setTimeout(flush, 40); }
             else delete q[key];
         }, 40);
+    }
+    function fxEdit(d, slot, kind, index, v) {
+        sendText(d, 'fx_edit', slot + kind + index, slot + ',' + kind + ',' + index + ',' + v);
     }
 
     function gotFxTypes(d, text) {
@@ -385,9 +389,133 @@ function (event, funcs) {
         });
     }
 
+    var ROUTING = [
+        ['group_proc_routing', 'Effect routing', 0, 6, 0, [[0, 'S1: 1 > 2 > 3 > 4'], [1, 'S2: (1|2) > (3|4)'], [2, 'S3: 1 > (2|3) > 4'],
+            [3, 'P1: 1 | 2 | 3 | 4'], [4, 'P2: (1>2) | (3>4)'], [5, 'P3: (1|2|3) > 4'], [6, 'Bypass all']]],
+        ['group_route_to', 'Output', -1, 20, -1, [[-1, 'Default (part)'], [0, 'Main']].concat(
+            range(1, 16, function (i) { return 'Bus ' + i; }), range(17, 20, function (i) { return 'Aux ' + (i - 16); }))],
+        ['group_oversample', 'Oversample', 0, 2, 1, [[0, 'Off'], [1, 'Auto'], [2, 'On']]]
+    ];
+
+    // ---- group mod matrix: 18 rows (source, via, curve, target, depth) ----
+    // mod_meta "S|<id>^<path>^<name>~...|T|...|C|..."; mod_rows "<on>^<src>^<via>^<curve>^<tgt>^<depth>~..."
+    // edits: mod_edit "<row>,<a|s|v|c|t|d>,<value>"
+    function optionsHtml(list, none, withPath) {
+        function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+        var h = '<option value="">' + none + '</option>', path = null;
+        list.forEach(function (e) {
+            if (e.path !== path) { if (path !== null) h += '</optgroup>'; path = e.path; h += '<optgroup label="' + esc(path || '-') + '">'; }
+            h += '<option value="' + e.id + '">' + esc(withPath && e.path ? e.path + ' \u203A ' + e.name : e.name) + '</option>';
+        });
+        if (path !== null) h += '</optgroup>';
+        return h;
+    }
+
+    function gotModMeta(d, text) {
+        var p = String(text).split('|'), m = {};
+        for (var i = 0; i + 1 < p.length; i += 2)
+            m[p[i]] = p[i + 1] ? p[i + 1].split('~').map(function (e) { var q = e.split('^'); return {id: q[0], path: q[1], name: q[2]}; }) : [];
+        d.modMeta = m;
+        var src = optionsHtml(m.S || [], '—'), tgt = optionsHtml(m.T || [], '—', true), crv = optionsHtml(m.C || [], 'x');
+        (d.modRows || []).forEach(function (r) {
+            r.src.innerHTML = src; r.via.innerHTML = src; r.tgt.innerHTML = tgt; r.crv.innerHTML = crv;
+        });
+        if (d.modLast) gotModRows(d, d.modLast);
+    }
+
+    function setSel(sel, v) {
+        sel.value = v;
+        if (sel.value !== v && v) { var o = el('option', '', sel, '(' + v + ')'); o.value = v; sel.value = v; }
+    }
+
+    function gotModRows(d, text) {
+        d.modLast = text;
+        String(text).split('~').forEach(function (row, i) {
+            var r = d.modRows && d.modRows[i];
+            if (!r) return;
+            var f = row.split('^');
+            if (r.local && Date.now() - r.local < 800) return; // our own edit coming back
+            r.on.classList.toggle('on', f[0] === '1');
+            r.el.classList.toggle('off', f[0] !== '1');
+            setSel(r.src, f[1] || ''); setSel(r.via, f[2] || ''); setSel(r.crv, f[3] || ''); setSel(r.tgt, f[4] || '');
+            r.depth.set(+f[5] || 0);
+            r.el.classList.toggle('used', !!(f[1] && f[4]));
+        });
+    }
+
+    function makeDepth(parent, onChange) {
+        var c = {v: 0};
+        c.el = el('div', 'scx-depth', parent);
+        var bar = el('div', 'scx-depth-bar', c.el), txt = el('div', 'scx-depth-txt', c.el, '0 %');
+        c.set = function (v) {
+            c.v = Math.max(-1, Math.min(1, v));
+            var l = c.v < 0 ? 50 + c.v * 50 : 50, w = Math.abs(c.v) * 50;
+            bar.style.left = l + '%'; bar.style.width = w + '%';
+            txt.textContent = (c.v * 100).toFixed(1) + ' %';
+        };
+        var startX = 0, startV = 0;
+        function move(e) {
+            var p = e.touches ? e.touches[0] : e;
+            var v = startV + (p.clientX - startX) / c.el.getBoundingClientRect().width * 2 * (e.shiftKey ? 0.2 : 1);
+            c.set(v); onChange(c.v); e.preventDefault();
+        }
+        function up() {
+            document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+            document.removeEventListener('touchmove', move); document.removeEventListener('touchend', up);
+        }
+        function down(e) {
+            var p = e.touches ? e.touches[0] : e;
+            startX = p.clientX; startV = c.v; e.preventDefault(); e.stopPropagation();
+            document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+            document.addEventListener('touchmove', move, {passive: false}); document.addEventListener('touchend', up);
+        }
+        c.el.addEventListener('mousedown', down);
+        c.el.addEventListener('touchstart', down, {passive: false});
+        c.el.addEventListener('dblclick', function (e) { e.stopPropagation(); c.set(0); onChange(0); });
+        c.set(0);
+        return c;
+    }
+
+    function buildMatrix(d, root) {
+        var card = el('div', 'scx-card scx-matrix', root);
+        el('h4', '', card, 'Group mod matrix');
+        var hdr = el('div', 'scx-mrow scx-mhead', card);
+        ['#', '', 'Source', 'Via', 'Curve', 'Target', 'Depth'].forEach(function (t) { el('div', '', hdr, t); });
+        var list = el('div', 'scx-mlist', card);
+        list.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        list.addEventListener('wheel', function (e) { e.stopPropagation(); });
+        d.modRows = [];
+        for (var i = 0; i < 18; i++) (function (i) {
+            var r = {el: el('div', 'scx-mrow', list)};
+            el('div', 'scx-mnum', r.el, '' + (i + 1));
+            r.on = el('button', 'scx-mon on', r.el, '\u23FB');
+            r.src = el('select', '', r.el); r.via = el('select', '', r.el);
+            r.crv = el('select', '', r.el); r.tgt = el('select', '', r.el);
+            [r.src, r.via, r.crv, r.tgt].forEach(function (x) { x.innerHTML = '<option value="">—</option>'; });
+            function edit(field, v) { r.local = Date.now(); sendText(d, 'mod_edit', i + field, i + ',' + field + ',' + v); }
+            r.on.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var on = !r.on.classList.contains('on');
+                r.on.classList.toggle('on', on); r.el.classList.toggle('off', !on);
+                edit('a', on ? 1 : 0);
+            });
+            r.src.addEventListener('change', function () { edit('s', r.src.value); r.el.classList.toggle('used', !!(r.src.value && r.tgt.value)); });
+            r.via.addEventListener('change', function () { edit('v', r.via.value); });
+            r.crv.addEventListener('change', function () { edit('c', r.crv.value); });
+            r.tgt.addEventListener('change', function () { edit('t', r.tgt.value); r.el.classList.toggle('used', !!(r.src.value && r.tgt.value)); });
+            r.depth = makeDepth(r.el, function (v) { edit('d', v.toFixed(4)); });
+            d.modRows.push(r);
+        })(i);
+    }
+
     function buildFx(d, root) {
         var fx = el('div', 'scx-card scx-fx', root);
-        el('h4', '', fx, 'Group effects');
+        var fh = el('h4', '', fx, 'Group effects');
+        var rt = el('div', 'scx-routing', fx);
+        ROUTING.forEach(function (g) {
+            var spec = {uri: U(g[0]), label: g[1], min: g[2], max: g[3], def: g[4], options: g[5]};
+            d.ctl[spec.uri] = makeSelect(d, rt, spec);
+        });
         var row = el('div', 'scx-fx-row', fx);
         d.fx = [];
         for (var s = 0; s < 4; s++) (function (s) {
@@ -482,6 +610,7 @@ function (event, funcs) {
         });
 
         buildFx(d, root);
+        buildMatrix(d, root);
 
         // macros (control ports p0..p15)
         var mc = el('div', 'scx-card scx-macros', root);
@@ -520,6 +649,8 @@ function (event, funcs) {
         if (key === U('listing')) { gotListing(d, v); return; }
         if (key === U('fx_types')) { var t = joinChunk(d, 'types', v); if (t !== null) gotFxTypes(d, t); return; }
         if (key === U('fx_desc')) { var dd = joinChunk(d, 'desc', v); if (dd !== null) gotFxDesc(d, dd); return; }
+        if (key === U('mod_meta')) { var mm = joinChunk(d, 'meta', v); if (mm !== null) gotModMeta(d, mm); return; }
+        if (key === U('mod_rows')) { var mr = joinChunk(d, 'rows', v); if (mr !== null) gotModRows(d, mr); return; }
         if (key === U('fx_values')) { var fv = joinChunk(d, 'values', v); if (fv !== null) gotFxValues(d, fv); return; }
         if (key === U('folders')) { gotFolders(d, v); return; }
         if (key === U('loaded')) { if (d.loaded !== undefined && v !== d.loaded) d.status.textContent = ''; d.loaded = v; return; }
