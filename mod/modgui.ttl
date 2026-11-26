@@ -1,0 +1,18 @@
+@prefix modgui: <http://moddevices.com/ns/modgui#> .
+@prefix lv2:    <http://lv2plug.in/ns/lv2core#> .
+
+<https://github.com/maarthome/shortcircuit-xt#lv2>
+    modgui:gui [
+        modgui:resourcesDirectory <modgui> ;
+        modgui:iconTemplate <modgui/icon-shortcircuit-xt.html> ;
+        modgui:stylesheet <modgui/stylesheet-shortcircuit-xt.css> ;
+        modgui:javascript <modgui/javascript-shortcircuit-xt.js> ;
+        modgui:screenshot <modgui/screenshot-shortcircuit-xt.png> ;
+        modgui:thumbnail <modgui/thumbnail-shortcircuit-xt.png> ;
+        modgui:brand "Surge Synth Team" ;
+        modgui:label "Shortcircuit XT" ;
+        modgui:model "boxy" ;
+        modgui:panel "2-knobs" ;
+        modgui:color "black" ;
+        modgui:knob "black" ;
+    ] .

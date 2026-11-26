@@ -11,6 +11,10 @@ Raspberry Pi 5 (aarch64, Debian trixie), used on a pi-Stomp (MOD) and a Zynthian
 | `src/clients/CMakeLists.txt` | option `SCXT_BUILD_LV2` (off by default) adds `src/clients/lv2` to the build — the only change to an upstream file |
 | `src/clients/lv2/clap2lv2.cpp` | the LV2 plugin and X11 UI, with Shortcircuit XT's plugin code linked in |
 | `src/clients/lv2/clap_host.h` | the host side the plugin code talks to (threads, timers, editor window) |
+| `src/clients/lv2/scxt_params.h` | the panel's LV2 parameters (group, instrument, group settings, EG1) |
+| `src/clients/lv2/scxt_bridge.cpp`, `.h` | turns panel parameter changes into the engine messages Shortcircuit XT's editor sends, and reports values back |
+| `mod/modgui.ttl`, `mod/modgui/` | the MOD panel (pi-Stomp) |
+| `mod/instrument_list.py` | makes the panel's instrument list (`instruments.txt` + the list in the panel script) |
 | `src/clients/lv2/clap2lv2_ttl.cpp` | `scxt-lv2-ttl`: writes the bundle's `.ttl` files from the plugin's own knob list |
 | `src/clients/lv2/CMakeLists.txt` | targets `scxt_lv2` and `scxt-lv2-ttl` |
 | `src/clients/lv2/README.md` | technical description |
@@ -37,6 +41,32 @@ The plugin has:
 - the whole Shortcircuit XT state in the LV2 state (presets, pedalboards, snapshots);
 - the Shortcircuit XT editor as LV2 X11 UI (Zynthian over VNC, jalv, Carla; not MOD);
 - LV2 URI `https://github.com/maarthome/shortcircuit-xt#lv2`, bundle `ShortcircuitXT.lv2`.
+
+### The MOD panel (pi-Stomp)
+
+The bundle includes a panel for MOD-UI, from top to bottom:
+
+- **Group selector** (◀ Group n / N ▶): the group of part 1 that the panel edits.
+- **Group settings:** volume, pan, tuning, pitch bend down/up, glide time and mode, velocity
+  sensitivity, play mode (poly / piano / mono / legato), note priority, voices, MIDI channel,
+  exclusive group.
+- **Instrument browser:** the instruments in `~/.local/share/shortcircuit-xt/instruments` on the
+  pi-Stomp (folders, `.sfz` files and loose samples; samples that belong to an `.sfz` are hidden),
+  with a search box. Choosing one asks "Add to part 1" (new group) or "Replace part 1".
+- **Group EG1 (amp envelope):** Dly, A, H, D, S, R.
+- **Macros 1–16** (the control ports, also on the pi-Stomp display and knobs).
+
+How it works: the panel sets LV2 patch parameters (`scxt_params.h`). The plugin hands them to a
+worker thread (`scxt_bridge.cpp`) that sends the same engine messages as Shortcircuit XT's own
+editor: select group, change a group field, change an EG value, clear part, load a sample or
+`.sfz`. Every 200 ms it reads the selected group's values back and sends changes to the panel
+(atom output port `events_out`), so the panel follows presets, loads and the editor.
+
+The instrument list is made when installing: `--deploy` reads the pi-Stomp's instruments folder
+(after copying `--instruments DIR`, if given) and writes the same list into `instruments.txt` (for
+the plugin) and the panel. After adding instruments on the pi-Stomp by hand, run `--deploy` again.
+
+Still to come: the 4 effect slots, mod matrix, routing, EG2–5 and LFO1–4.
 
 ## Building on the dev Pi 5
 

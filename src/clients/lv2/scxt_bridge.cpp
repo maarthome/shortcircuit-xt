@@ -18,6 +18,8 @@
 #include <cstdio>
 #include <fstream>
 #include <mutex>
+#include <pwd.h>
+#include <unistd.h>
 #include <thread>
 #include <vector>
 
@@ -144,6 +146,12 @@ struct Bridge::Impl
                 if (!line.empty() && line[0] == '/')
                     return line;
                 const char *home = getenv("HOME");
+                if (!home || !*home)
+                {
+                    // services (mod-host) may run without HOME
+                    if (auto *pw = getpwuid(getuid()))
+                        home = pw->pw_dir;
+                }
                 std::vector<std::string> bases;
                 if (!base.empty())
                     bases.push_back(base);

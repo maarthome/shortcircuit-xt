@@ -203,6 +203,17 @@ build() {
     strip --strip-unneeded "$BUNDLE/scxt_lv2.so" "$BUNDLE/scxt-lv2-ttl" || true
     "$BUNDLE/scxt-lv2-ttl" "$BUNDLE/scxt_lv2.so" "$BUNDLE" scxt_lv2.so "$MAX_PARAMS"
 
+    # the MOD panel (pi-Stomp); other hosts ignore it
+    cp -r "$ROOT/mod/modgui" "$BUNDLE/"
+    cp "$ROOT/mod/modgui.ttl" "$BUNDLE/"
+    printf '\n<https://github.com/maarthome/shortcircuit-xt#lv2> rdfs:seeAlso <modgui.ttl> .\n' >> "$BUNDLE/manifest.ttl"
+    # instrument list: from --instruments now; --deploy replaces it with the pi-Stomp's folder
+    if [ -n "$INSTRUMENTS" ]; then
+        (cd "$INSTRUMENTS" && find . -type f) | python3 "$ROOT/mod/instrument_list.py" "$BUNDLE"
+    else
+        python3 "$ROOT/mod/instrument_list.py" "$BUNDLE" < /dev/null
+    fi
+
     # the plain CLAP is only kept with --with-clap (an old copy confuses lv2ls)
     rm -f "$DIST/Shortcircuit XT.clap"
     if [ "$WITH_CLAP" = "1" ]; then
@@ -231,14 +242,17 @@ build() {
 # ---------------------------------------------------------------------------
 deploy_pistomp() {
     local dest="${LV2_DIR:-.lv2}"   # relative = in the ssh user's home on the pi-Stomp
-    log "Installing on the pi-Stomp ($PISTOMP:$dest)"
-    ssh "$PISTOMP" "mkdir -p '$dest' && rm -rf '$dest/$BUNDLE_NAME'"
-    rsync -a --protect-args "$BUNDLE" "$PISTOMP:$dest/"
     if [ -n "$INSTRUMENTS" ]; then
         log "Copying instruments from $INSTRUMENTS to $PISTOMP:.local/share/shortcircuit-xt/instruments"
         ssh "$PISTOMP" "mkdir -p .local/share/shortcircuit-xt/instruments"
         rsync -a --protect-args "${INSTRUMENTS%/}/" "$PISTOMP:.local/share/shortcircuit-xt/instruments/"
     fi
+    log "Reading the instruments on the pi-Stomp for the panel's list"
+    ssh "$PISTOMP" 'cd .local/share/shortcircuit-xt/instruments 2>/dev/null && find . -type f' \
+        | python3 "$ROOT/mod/instrument_list.py" "$BUNDLE"
+    log "Installing on the pi-Stomp ($PISTOMP:$dest)"
+    ssh "$PISTOMP" "mkdir -p '$dest' && rm -rf '$dest/$BUNDLE_NAME'"
+    rsync -a --protect-args "$BUNDLE" "$PISTOMP:$dest/"
     log "Restarting mod-host and mod-ui on the pi-Stomp (may ask for its sudo password)"
     ssh -t "$PISTOMP" "sudo systemctl restart mod-host mod-ui"
 }
