@@ -556,7 +556,15 @@ bool importAKP(const fs::path &path, engine::Engine &e)
         const auto &kg = akp.keygroups[i];
 
         int groupId = import_support::getOrCreateGroup(ctx, akaiGroupToSCGroup, kg.kloc.grp, [&] {
-            return "AKP Group " + std::to_string(kg.kloc.grp);
+            // name the group after the program file, so several loaded AKPs can be told
+            // apart (was "AKP Group 0" for each of them)
+            auto nm = path.stem().u8string();
+            std::string name(nm.begin(), nm.end());
+            if (name.empty())
+                name = "AKP";
+            if (kg.kloc.grp > 0)
+                name += " " + std::to_string(kg.kloc.grp + 1);
+            return name;
         });
 
         for (const auto &z : kg.zones)
