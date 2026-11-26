@@ -1,5 +1,5 @@
 /* Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, My_Changes) */
-.scxt { width: 1100px; height: 760px; background: #1e2227; color: #d6dae0;
+.scxt { width: 1100px; height: 888px; background: #1e2227; color: #d6dae0;
   font-family: "Inter", "Helvetica Neue", Arial, sans-serif; border-radius: 6px; position: relative; user-select: none; }
 .scxt .scx-root { position: absolute; inset: 0; padding: 8px 14px 10px; box-sizing: border-box; z-index: 25;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
@@ -35,7 +35,7 @@
 .scxt .scx-knob.dim .scx-lbl { color: #6d7580; }
 
 /* middle row: browser + EG1 */
-.scxt .scx-mid { display: flex; gap: 8px; flex: 1; min-height: 0; }
+.scxt .scx-mid { display: flex; gap: 8px; flex: none; height: 190px; }
 .scxt .scx-browser { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .scxt .scx-bar { display: flex; gap: 4px; margin-bottom: 4px; }
 .scxt .scx-folders { flex: 1; min-width: 0; height: 26px; background: #1d2126; color: #d6dae0; border: 1px solid #3f464f; border-radius: 4px; font-size: 12px; }
@@ -73,3 +73,31 @@
 .scxt .scx-dlg-btns { display: flex; justify-content: flex-end; gap: 8px; }
 .scxt .scx-dlg-btns button { min-width: 110px; }
 .scxt .scx-status { font-size: 11px; color: #f0a83a; min-height: 14px; }
+
+/* group effects: 4 slots side by side */
+.scxt .scx-fx-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.scxt .scx-fx-slot { background: #1f2328; border: 1px solid #343a42; border-radius: 5px; padding: 6px; min-height: 236px; display: flex; flex-direction: column; min-width: 0; }
+.scxt .scx-fx-slot.off .scx-fx-body { opacity: .4; }
+.scxt .scx-fx-head { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.scxt .scx-fx-num { font-size: 11px; font-weight: 700; color: #9aa4b2; letter-spacing: .06em; }
+.scxt .scx-fx-on { width: 26px; height: 24px; padding: 0; font-size: 13px; }
+.scxt .scx-fx-type { flex: 1; min-width: 0; height: 24px; font-size: 12px; color: #f0a83a; background: #1d2126; }
+.scxt .scx-fx-none { font-size: 11px; color: #6d7580; text-align: center; padding-top: 80px; }
+.scxt .scx-fx-knobs { display: grid; grid-template-columns: repeat(4, 1fr); row-gap: 4px; }
+.scxt .scx-fx-knobs .scx-knob { width: auto; min-width: 0; }
+.scxt .scx-fx-knobs .scx-knob svg { width: 36px; height: 36px; }
+.scxt .scx-fx-knobs .scx-knob .scx-lbl { font-size: 10px; max-width: 62px; }
+.scxt .scx-fx-knobs .scx-knob .scx-val { font-size: 9px; max-width: 62px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.scxt .scx-fx-knobs .scx-fx-out .scx-lbl { color: #9aa4b2; }
+.scxt .scx-fx-sels { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.scxt .scx-fx-int { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #8a929c; }
+.scxt .scx-fx-int span { width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scxt .scx-fx-int select { flex: 1; min-width: 0; height: 22px; font-size: 11px; color: #f0a83a; background: #1d2126; }
+
+/* the browser: one drop-down list */
+.scxt .scx-browse { width: 100%; height: 34px; font-size: 14px; color: #f0a83a; background: #1d2126; }
+.scxt .scx-browse optgroup { color: #9aa4b2; font-style: normal; }
+.scxt .scx-browse option { color: #d6dae0; }
+.scxt .scx-hint { font-size: 11px; color: #6d7580; margin-top: 6px; }
+.scxt .scx-kinds { display: flex; gap: 6px; margin-bottom: 6px; }
+.scxt .scx-kinds button { flex: 1; height: 28px; }

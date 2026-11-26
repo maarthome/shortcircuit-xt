@@ -49,30 +49,36 @@ The bundle includes a panel for MOD-UI, from top to bottom:
 - **Group settings:** volume, pan, tuning, pitch bend down/up, glide time and mode, velocity
   sensitivity, play mode (poly / piano / mono / legato), note priority, voices, MIDI channel,
   exclusive group.
-- **Instruments & samples browser:** any folder on the pi-Stomp. The folder menu has
-  ⌂ Instruments (`~/.local/share/ShortCircuit-XT`), ⌂ Home, ⌂ USB / media (`/media`) and your
-  ★ saved folders; you can also type a folder (e.g. `/media/usb0/Samples`) and press Enter.
-  It shows sub-folders and everything Shortcircuit XT can load (the same list as its own
-  browser): instruments `.sfz .sf2 .akp .exs .gig .multisample`, samples
-  `.wav .flac .aif .aiff .mp3 .opus`, and Shortcircuit's own `.scp` (part) and `.scm` (multi;
-  replaces all parts), with a search box for the current folder. ☆ remembers the current folder (★ forgets it again).
-  The last folder you opened comes back next time. Both are kept in
-  `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp. Choosing a file asks
-  "Add to part 1" (new group) or "Replace part 1".
+- **Instruments & samples browser:** two buttons, **Instruments** (`.sfz .sf2 .akp .exs .gig
+  .multisample`, and Shortcircuit's own `.scp` part / `.scm` multi, which replace) and **Waves**
+  (`.wav .flac .aif .aiff .mp3 .opus`), and one drop-down list with the current folder:
+  `..`, its sub-folders and the files of the chosen kind, then "Go to": ⌂ Instruments
+  (`~/.local/share/ShortCircuit-XT`), ⌂ Home, ⌂ USB / media (`/media`), your ★ saved folders
+  and ☆ Remember / ✖ Forget this folder. Choosing a folder opens it in the same list; choosing
+  a file asks "Add to part 1" (new group) or "Replace part 1". The last folder and the saved
+  folders are kept in `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp.
 - **Group EG1 (amp envelope):** Dly, A, H, D, S, R.
+- **Group effects FX1–FX4:** per slot an on/off button and the effect type (Shortcircuit's own
+  list, grouped: filters, delay, distortion, EQ, modulation, reverb, generators, ...). Below it
+  that effect's own controls with their names, ranges and value texts from Shortcircuit
+  (e.g. Cutoff "43.65 Hz"), Mix and Level knobs, and its choice settings (e.g. Passband) as
+  drop-downs. Double-click a knob for its default.
 - **Macros 1–16** (the control ports, also on the pi-Stomp display and knobs).
 
 How it works: the panel sets LV2 patch parameters (`scxt_params.h`). The plugin hands them to a
 worker thread (`scxt_bridge.cpp`) that sends the same engine messages as Shortcircuit XT's own
-editor: select group, change a group field, change an EG value, clear part, load a sample or
-`.sfz`. Every 200 ms it reads the selected group's values back and sends changes to the panel
-(atom output port `events_out`), so the panel follows presets, loads and the editor.
+editor: select group, change a group field, change an EG value, set an effect type or value,
+clear part, load a sample or `.sfz`. Every 200 ms it reads the selected group's values back and sends changes to the panel
+(atom output port `events_out`), so the panel follows presets, loads and the editor. The effect
+controls (names, ranges, choices) are copied in the audio thread between two process calls when
+an effect type changes, and sent to the panel as text.
 
 The plugin lists the folders itself (the listing goes to the panel in pieces of about 400
 characters, because mod-host passes at most about 500 per message) and loads files by their full
 path, so new files on the pi-Stomp or a USB stick show up straight away.
 
-Still to come: the 4 effect slots, mod matrix, routing, EG2–5 and LFO1–4.
+Still to come: mod matrix, routing, EG2–5 and LFO1–4; selecting files with the pi-Stomp's
+own display and buttons.
 
 ## Building on the dev Pi 5
 

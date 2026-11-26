@@ -37,6 +37,10 @@ class Bridge
     void post(uint32_t param, float value);
     // audio thread: the panel asked for values (patch:Get); all are re-sent
     void requestAll();
+    // audio thread, after the plugin's process(): copies effect descriptions the
+    // worker asked for (they are only safe to read between process calls)
+    void audioTick();
+
     // audio thread: next value to send to the panel; false when none
     bool popOut(uint32_t &param, float &value);
 

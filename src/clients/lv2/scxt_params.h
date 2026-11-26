@@ -54,6 +54,10 @@ enum ParamId : uint32_t
     P_FOLDERS,        // plugin -> panel: saved folders, separated by '|'
     P_FOLDER_ADD,     // panel -> plugin: save this folder
     P_FOLDER_REMOVE,  // panel -> plugin: forget this folder
+    P_FX_TYPES,       // plugin -> panel: the effect (processor) types, chunked
+    P_FX_DESC,        // plugin -> panel: one slot's controls (names, ranges, choices), chunked
+    P_FX_VALUES,      // plugin -> panel: one slot's values and their display texts, chunked
+    P_FX_EDIT,        // panel -> plugin: "<slot>,<t|a|m|l|f|i>,<index>,<value>"
 
     P_NUM
 };
@@ -103,6 +107,10 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"folders", "Saved folders", 0, 0, 0, false, false},
     {"folder_add", "Save folder", 0, 0, 0, true, false},
     {"folder_remove", "Forget folder", 0, 0, 0, true, false},
+    {"fx_types", "Effect types", 0, 0, 0, false, false},
+    {"fx_desc", "Effect controls", 0, 0, 0, false, false},
+    {"fx_values", "Effect values", 0, 0, 0, false, false},
+    {"fx_edit", "Effect edit", 0, 0, 0, true, false},
 };
 
 } // namespace scxt_lv2

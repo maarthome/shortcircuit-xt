@@ -47,7 +47,8 @@ function (event, funcs) {
     // ---- a control bound to a patch parameter (uri) or a port (symbol) ----
     function send(d, c, v) {
         c.local = Date.now();
-        if (c.uri) funcs.patch_set(c.uri, 'f', v);
+        if (c.sendFn) c.sendFn(v);
+        else if (c.uri) funcs.patch_set(c.uri, 'f', v);
         else funcs.set_port_value(c.symbol, v);
     }
 
@@ -150,76 +151,88 @@ function (event, funcs) {
         return c;
     }
 
-    // ---- file browser ----
+    // ---- file browser: one drop-down list ----
+    // The plugin lists the folders (browse -> listing chunks "<n>/<total>|<folder>|D<dir>|F<file>...")
+    // and remembers the last folder and the saved ones (folders) on the device.
     function joinPath(dir, name) { return dir === '/' ? '/' + name : dir + '/' + name; }
     function parentOf(dir) { var i = dir.lastIndexOf('/'); return i <= 0 ? '/' : dir.substring(0, i); }
     function baseName(p) { return p === '/' ? '/' : p.substring(p.lastIndexOf('/') + 1); }
-    function browse(d, dir) {
-        d.status.textContent = '';
-        d.wantDir = dir;
-        funcs.patch_set(U('browse'), 's', dir);
-    }
+    function browse(d, dir) { funcs.patch_set(U('browse'), 's', dir); }
 
-    // "<n>/<total>|<folder>|D<dir>|F<file>|..."
     function gotListing(d, text) {
         var parts = String(text).split('|');
         if (parts.length < 2) return;
         var seq = parts[0].split('/'), n = parseInt(seq[0], 10), total = parseInt(seq[1], 10), dir = parts[1];
-        if (n === 1 || dir !== d.cwd) { d.cwd = dir; d.entries = []; d.got = 0; d.search.value = ''; }
+        if (n === 1 || dir !== d.cwd) { d.cwd = dir; d.entries = []; d.got = 0; }
         d.got++;
         for (var i = 2; i < parts.length; i++) {
             var e = parts[i];
             if (e.length > 1) d.entries.push({dir: e[0] === 'D', name: e.substring(1)});
         }
         d.complete = d.got >= total;
-        showList(d);
+        fillBrowser(d);
     }
 
     function gotFolders(d, text) {
         var f = String(text).split('|').filter(function (x) { return x.length; });
         d.defaultDir = f[0] || d.defaultDir;
         d.saved = f.slice(1);
-        showFolders(d);
+        fillBrowser(d);
     }
 
-    function showFolders(d) {
-        var sel = d.folderSel;
+    // what the list shows besides folders: instruments (sfz, sf2, akp, exs, gig, multisample,
+    // Shortcircuit's own scp/scm) or waves (single samples)
+    var WAVE_RE = /\.(wav|flac|mp3|opus|aif|aiff)$/i;
+    function shown(d, name) { return (d.kind === 'waves') === WAVE_RE.test(name); }
+    function setKind(d, kind) {
+        d.kind = kind;
+        d.kindBtns.forEach(function (b) { b.classList.toggle('on', b.kind === kind); });
+        fillBrowser(d);
+    }
+
+    // option values: "B<folder>" open, "L<file>" load, "S" remember, "R" forget
+    function fillBrowser(d) {
+        var sel = d.browser;
+        if (!sel) return;
         sel.innerHTML = '';
-        function opt(value, label) { var o = el('option', '', sel, label); o.value = value; o.title = value; return o; }
-        opt('', d.cwd ? baseName(d.cwd) + '  (' + d.cwd + ')' : '…').disabled = true;
-        if (d.defaultDir) {
-            opt(d.defaultDir, '\u2302 Instruments');
-            var home = d.defaultDir.replace(/\/\.local\/share\/ShortCircuit-XT$/, '');
-            if (home !== d.defaultDir) opt(home, '\u2302 Home');
+        function opt(parent, value, label) { var o = el('option', '', parent, label); o.value = value; return o; }
+        function grp(label) { var g = el('optgroup', '', sel); g.label = label; return g; }
+        var head = opt(sel, '', d.cwd === undefined ? 'Waiting for the plugin…' :
+            '\uD83D\uDCC2 ' + baseName(d.cwd) + (d.complete ? '' : ' (loading…)') + '  \u2014 choose a folder or file');
+        head.disabled = true;
+        if (d.cwd !== undefined) {
+            var here = grp('This folder: ' + d.cwd);
+            if (d.cwd !== '/') opt(here, 'B' + parentOf(d.cwd), '\u2B11  .. (up)');
+            var dirs = d.entries.filter(function (e) { return e.dir; }), files = d.entries.filter(function (e) { return !e.dir && shown(d, e.name); });
+            dirs.forEach(function (e) { opt(here, 'B' + joinPath(d.cwd, e.name), '\uD83D\uDCC1  ' + e.name); });
+            files.forEach(function (e) { opt(here, 'L' + joinPath(d.cwd, e.name), '\u266A  ' + e.name); });
+            if (!files.length && !dirs.length && d.complete) opt(here, '', '(no ' + (d.kind === 'waves' ? 'waves' : 'instruments') + ' here)').disabled = true;
         }
-        opt('/media', '\u2302 USB / media');
-        (d.saved || []).forEach(function (f) { opt(f, '\u2605 ' + baseName(f) + '  (' + f + ')'); });
+        var go = grp('Go to');
+        if (d.defaultDir) {
+            opt(go, 'B' + d.defaultDir, '\u2302  Instruments');
+            var home = d.defaultDir.replace(/\/\.local\/share\/ShortCircuit-XT$/, '');
+            if (home !== d.defaultDir) opt(go, 'B' + home, '\u2302  Home');
+        }
+        opt(go, 'B/media', '\u2302  USB / media');
+        (d.saved || []).forEach(function (f) { opt(go, 'B' + f, '\u2605  ' + baseName(f) + '   (' + f + ')'); });
+        if (d.cwd !== undefined && d.cwd !== d.defaultDir) {
+            var isSaved = (d.saved || []).indexOf(d.cwd) >= 0;
+            opt(go, isSaved ? 'R' : 'S', isSaved ? '\u2716  Forget this folder' : '\u2606  Remember this folder');
+        }
         sel.value = '';
-        var isSaved = (d.saved || []).indexOf(d.cwd) >= 0;
-        d.starBtn.textContent = isSaved ? '\u2605' : '\u2606';
-        d.starBtn.title = isSaved ? 'Forget this folder' : 'Remember this folder';
+        sel.title = d.cwd || '';
     }
 
-    function showList(d) {
-        var list = d.list, q = d.search.value.trim().toLowerCase();
-        list.innerHTML = '';
-        d.pathEl.value = d.cwd || '';
-        showFolders(d);
-        if (d.cwd === undefined) { el('div', 'scx-empty', list, 'Waiting for the plugin…'); return; }
-        if (!q && d.cwd !== '/') {
-            el('div', 'scx-item dir', list, '..').addEventListener('click', function () { browse(d, parentOf(d.cwd)); });
-        }
-        var shown = 0;
-        d.entries.forEach(function (e) {
-            if (q && e.name.toLowerCase().indexOf(q) < 0) return;
-            shown++;
-            var it = el('div', 'scx-item ' + (e.dir ? 'dir' : 'file'), list, e.name);
-            var full = joinPath(d.cwd, e.name);
-            it.title = full;
-            it.addEventListener('click', function () { if (e.dir) browse(d, full); else askLoad(d, full); });
-        });
-        if (!shown) el('div', 'scx-empty', list, q ? 'Nothing matches "' + q + '" in this folder.' :
-            (d.complete ? 'No instruments or samples here (sfz, sf2, akp, exs, gig, multisample, scp, scm, wav, flac, aif, mp3, opus).' : 'Loading…'));
+    function browserChoice(d) {
+        var v = d.browser.value;
+        d.browser.value = '';
+        if (!v) return;
+        var kind = v[0], path = v.substring(1);
+        if (kind === 'B') browse(d, path);
+        else if (kind === 'L') askLoad(d, path);
+        else if (kind === 'S') funcs.patch_set(U('folder_add'), 's', d.cwd);
+        else if (kind === 'R') funcs.patch_set(U('folder_remove'), 's', d.cwd);
     }
 
     function askLoad(d, path) {
@@ -238,6 +251,159 @@ function (event, funcs) {
         funcs.patch_set(U('load_path'), 's', d.pendingLoad);
         d.status.textContent = (mode || /\.sc[mp]$/i.test(d.pendingLoad) ? 'Loading ' : 'Adding to part 1: ') + baseName(d.pendingLoad);
         d.pendingLoad = undefined;
+    }
+
+    // ---- effects: the selected group's 4 processor slots ----
+    // The plugin sends text in pieces "<tag> <n>/<total>|<piece>" (fx_types, fx_desc,
+    // fx_values); edits go back as fx_edit "<slot>,<t|a|m|l|f|i>,<index>,<value>".
+    function joinChunk(d, key, text) {
+        var t = String(text), bar = t.indexOf('|'), head = t.substring(0, bar).split(' ');
+        var tag = head[0], nt = (head[1] || '1/1').split('/'), n = +nt[0], total = +nt[1];
+        var k = key + ':' + tag;
+        d.chunks = d.chunks || {};
+        if (n === 1) d.chunks[k] = '';
+        d.chunks[k] = (d.chunks[k] || '') + t.substring(bar + 1);
+        if (n < total) return null;
+        var whole = d.chunks[k]; delete d.chunks[k];
+        return whole;
+    }
+
+    function fxEdit(d, slot, kind, index, v) {
+        // at most one message per control every 40 ms while dragging; the last value always goes
+        var key = slot + kind + index, q = d.fxQueue = d.fxQueue || {};
+        var first = !q[key];
+        q[key] = slot + ',' + kind + ',' + index + ',' + v;
+        if (!first) return;
+        funcs.patch_set(U('fx_edit'), 's', q[key]);
+        var last = q[key];
+        setTimeout(function flush() {
+            if (q[key] !== last) { last = q[key]; funcs.patch_set(U('fx_edit'), 's', last); setTimeout(flush, 40); }
+            else delete q[key];
+        }, 40);
+    }
+
+    function gotFxTypes(d, text) {
+        d.fxTypes = String(text).split('~').map(function (e) { var p = e.split('^'); return {id: +p[0], group: p[1], name: p[2]}; });
+        for (var s = 0; s < 4; s++) fillTypeSelect(d, s);
+    }
+
+    function fillTypeSelect(d, s) {
+        var slot = d.fx && d.fx[s];
+        if (!slot || !d.fxTypes) return;
+        var sel = slot.typeSel, cur = slot.type || 0, groups = {};
+        sel.innerHTML = '';
+        d.fxTypes.forEach(function (t) {
+            var parent = sel;
+            if (t.id !== 0) {
+                if (!groups[t.group]) { groups[t.group] = el('optgroup', '', sel); groups[t.group].label = t.group; }
+                parent = groups[t.group];
+            }
+            var o = el('option', '', parent, t.id === 0 ? '— none —' : t.name); o.value = t.id;
+        });
+        sel.value = '' + cur;
+    }
+
+    function fmtText(c) { return function (v) { return (c.text && !(c.local && Date.now() - c.local < 400)) ? c.text : (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2)); }; }
+
+    // "<slot>|<type>|<name>|<floats>|<ints>"
+    function gotFxDesc(d, text) {
+        var f = String(text).split('|'), s = +f[0], slot = d.fx && d.fx[s];
+        if (!slot) return;
+        slot.type = +f[1];
+        slot.typeSel.value = '' + slot.type;
+        slot.body.innerHTML = '';
+        slot.floats = []; slot.ints = [];
+        slot.card.classList.toggle('empty', slot.type === 0);
+        if (slot.type === 0) { el('div', 'scx-fx-none', slot.body, 'Empty slot'); slot.mixKnob = slot.levelKnob = null; return; }
+        var knobs = el('div', 'scx-fx-knobs', slot.body);
+        (f[3] ? f[3].split('~') : []).forEach(function (e, i) {
+            var p = e.split('^');
+            if (!p[0] || p[4] === 'N') { slot.floats.push(null); return; }
+            var c = {label: p[0], min: +p[1], max: +p[2], def: +p[3]};
+            if (c.max <= c.min) c.max = c.min + 1;
+            c.fmt = fmtText(c);
+            c.sendFn = function (v) {
+                if (p[4] !== 'F') { v = Math.round(v); }
+                fxEdit(d, s, 'f', i, v);
+            };
+            slot.floats.push(makeKnob(d, knobs, c));
+        });
+        ['Mix', 'Level'].forEach(function (name) {
+            var c = {label: name, min: 0, max: 1, def: name === 'Mix' ? 1 : 0.501187};
+            c.fmt = fmtText(c);
+            c.sendFn = function (v) { fxEdit(d, s, name === 'Mix' ? 'm' : 'l', 0, v); };
+            var k = makeKnob(d, knobs, c);
+            k.el.classList.add('scx-fx-out');
+            if (name === 'Mix') slot.mixKnob = k; else slot.levelKnob = k;
+        });
+        var sels = el('div', 'scx-fx-sels', slot.body);
+        (f[4] ? f[4].split('~') : []).forEach(function (e, i) {
+            var p = e.split('^');
+            if (!p[0]) { slot.ints.push(null); return; }
+            var row = el('label', 'scx-fx-int', sels), lo = Math.round(+p[1]);
+            el('span', '', row, p[0]);
+            var sel = el('select', '', row);
+            p.slice(4).forEach(function (name, k) { var o = el('option', '', sel, name); o.value = lo + k; });
+            sel.addEventListener('mousedown', function (ev) { ev.stopPropagation(); });
+            sel.addEventListener('change', function () { sel.local = Date.now(); fxEdit(d, s, 'i', i, parseInt(sel.value, 10)); });
+            slot.ints.push(sel);
+        });
+        if (slot.lastValues) gotFxValues(d, slot.lastValues);
+    }
+
+    // "<slot>|<type>|<active>|<mix>|<level>|<floats>|<ints>|<float texts>|<mix text>~<level text>"
+    function gotFxValues(d, text) {
+        var f = String(text).split('|'), s = +f[0], slot = d.fx && d.fx[s];
+        if (!slot) return;
+        slot.lastValues = text;
+        if (+f[1] !== slot.type) return; // its description comes first
+        slot.active = f[2] === '1';
+        slot.onBtn.classList.toggle('on', slot.active);
+        slot.card.classList.toggle('off', !slot.active);
+        var fv = f[5] ? f[5].split('~') : [], iv = f[6] ? f[6].split('~') : [], ft = f[7] ? f[7].split('~') : [], ot = (f[8] || '').split('~');
+        function put(c, v, t) {
+            if (!c) return;
+            c.text = t;
+            if (c.local && Date.now() - c.local < 800) { c.show(); return; } // our own edit coming back
+            c.set(+v);
+        }
+        slot.floats.forEach(function (c, i) { put(c, fv[i], ft[i]); });
+        put(slot.mixKnob, f[3], ot[0]);
+        put(slot.levelKnob, f[4], ot[1]);
+        slot.ints.forEach(function (sel, i) {
+            if (sel && !(sel.local && Date.now() - sel.local < 800) && iv[i] !== undefined) sel.value = '' + iv[i];
+        });
+    }
+
+    function buildFx(d, root) {
+        var fx = el('div', 'scx-card scx-fx', root);
+        el('h4', '', fx, 'Group effects');
+        var row = el('div', 'scx-fx-row', fx);
+        d.fx = [];
+        for (var s = 0; s < 4; s++) (function (s) {
+            var card = el('div', 'scx-fx-slot empty', row);
+            var head = el('div', 'scx-fx-head', card);
+            el('span', 'scx-fx-num', head, 'FX' + (s + 1));
+            var onBtn = el('button', 'scx-fx-on on', head, '⏻');
+            onBtn.title = 'On / off';
+            var typeSel = el('select', 'scx-fx-type', head);
+            el('option', '', typeSel, '— none —').value = 0;
+            var slot = {card: card, onBtn: onBtn, typeSel: typeSel, type: 0, active: true, floats: [], ints: []};
+            slot.body = el('div', 'scx-fx-body', card);
+            el('div', 'scx-fx-none', slot.body, 'Empty slot');
+            onBtn.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            onBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                slot.active = !slot.active;
+                onBtn.classList.toggle('on', slot.active);
+                card.classList.toggle('off', !slot.active);
+                fxEdit(d, s, 'a', 0, slot.active ? 1 : 0);
+            });
+            typeSel.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            typeSel.addEventListener('change', function () { fxEdit(d, s, 't', 0, parseInt(typeSel.value, 10)); });
+            d.fx.push(slot);
+            fillTypeSelect(d, s);
+        })(s);
     }
 
     // ---- build ----
@@ -274,32 +440,22 @@ function (event, funcs) {
         var mid = el('div', 'scx-mid', root);
         var br = el('div', 'scx-card scx-browser', mid);
         el('h4', '', br, 'Instruments & samples');
-        var bar = el('div', 'scx-bar', br);
-        d.folderSel = el('select', 'scx-folders', bar);
-        d.folderSel.title = 'Folders';
-        d.folderSel.addEventListener('change', function () { if (d.folderSel.value) browse(d, d.folderSel.value); });
-        d.starBtn = el('button', 'scx-star', bar, '\u2606');
-        d.starBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (!d.cwd) return;
-            var isSaved = (d.saved || []).indexOf(d.cwd) >= 0;
-            funcs.patch_set(U(isSaved ? 'folder_remove' : 'folder_add'), 's', d.cwd);
+        var kinds = el('div', 'scx-kinds', br);
+        d.kind = 'instruments';
+        d.kindBtns = [['instruments', 'Instruments', 'sfz, sf2, akp, exs, gig, multisample, scp, scm'],
+                      ['waves', 'Waves', 'wav, flac, aif, aiff, mp3, opus']].map(function (k) {
+            var b = el('button', k[0] === d.kind ? 'on' : '', kinds, k[1]);
+            b.kind = k[0]; b.title = k[2];
+            b.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            b.addEventListener('click', function (e) { e.stopPropagation(); setKind(d, k[0]); });
+            return b;
         });
-        d.pathEl = el('input', 'scx-pathin', br);
-        d.pathEl.placeholder = 'Folder, e.g. /media/usb';
-        d.pathEl.title = 'Type a folder and press Enter';
-        d.pathEl.addEventListener('keydown', function (e) {
-            e.stopPropagation();
-            if (e.key === 'Enter' && d.pathEl.value.trim()) browse(d, d.pathEl.value.trim().replace(/\/+$/, '') || '/');
-        });
-        d.search = el('input', 'scx-search', br); d.search.placeholder = 'Search in this folder';
-        d.search.addEventListener('input', function () { showList(d); });
-        d.search.addEventListener('keydown', function (e) { e.stopPropagation(); });
-        [bar, d.pathEl, d.search].forEach(function (x) { x.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
-        d.list = el('div', 'scx-list', br);
-        d.list.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        d.browser = el('select', 'scx-browse', br);
+        d.browser.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        d.browser.addEventListener('change', function () { browserChoice(d); });
+        el('div', 'scx-hint', br, 'Folders open in the same list; a file asks "Add" or "Replace". \u2606 in the list remembers a folder.');
         d.entries = [];
-        showList(d);
+        fillBrowser(d);
 
         var eg = el('div', 'scx-card scx-eg', mid);
         el('h4', '', eg, 'Group EG1 (amp)');
@@ -308,6 +464,8 @@ function (event, funcs) {
             var spec = {uri: U(e[0]), label: e[1], min: 0, max: 1, def: e[2], fmt: e[3]};
             d.ctl[spec.uri] = makeVSlider(d, sl, spec);
         });
+
+        buildFx(d, root);
 
         // macros (control ports p0..p15)
         var mc = el('div', 'scx-card scx-macros', root);
@@ -344,6 +502,9 @@ function (event, funcs) {
         if (key === U('group')) { d.group = Math.round(v); showGroup(d); return; }
         if (key === U('group_count')) { d.groupCount = Math.round(v); showGroup(d); return; }
         if (key === U('listing')) { gotListing(d, v); return; }
+        if (key === U('fx_types')) { var t = joinChunk(d, 'types', v); if (t !== null) gotFxTypes(d, t); return; }
+        if (key === U('fx_desc')) { var dd = joinChunk(d, 'desc', v); if (dd !== null) gotFxDesc(d, dd); return; }
+        if (key === U('fx_values')) { var fv = joinChunk(d, 'values', v); if (fv !== null) gotFxValues(d, fv); return; }
         if (key === U('folders')) { gotFolders(d, v); return; }
         if (key === U('loaded')) { if (d.loaded !== undefined && v !== d.loaded) d.status.textContent = ''; d.loaded = v; return; }
         var c = d.ctl && d.ctl[key];

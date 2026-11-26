@@ -568,6 +568,8 @@ struct Plugin
         proc.out_events = &outEvents.list;
 
         clap->process(clap, &proc);
+        if (bridge)
+            bridge->audioTick();
         writePanelValues();
         host.audioThread = std::thread::id(); // outside run() no thread is "audio"
         steadyTime += n;
