@@ -63,6 +63,7 @@ builds only recompile what changed.
 | `--zynthian` | install on the Zynthian (`ZYNTHIAN=root@zynthian.local`) with the widget and restart Zynthian |
 | `--deb` | also make `dist/shortcircuit-xt-lv2_<version>_arm64.deb` |
 | `--deb-only` | only make the `.deb` from the last build |
+| `--instruments DIR` | copy the instruments in DIR (sfz, samples, subfolders) to the pi-Stomp's `~/.local/share/shortcircuit-xt/instruments` (with `--deploy`) or into the `.deb` as `/usr/share/shortcircuit-xt/instruments` (with `--deb`) — next to Surge's `~/.local/share/surge-xt` |
 | `--with-clap` | also build the plain CLAP (`dist-linux-aarch64/Shortcircuit XT.clap`) |
 | `JOBS=n` | parallel compile jobs |
 | `SWAP_GB=n` | temporary swap size (default 6, 0 = none) |
@@ -86,6 +87,14 @@ ssh pistomp@pistomp.local 'grep -c ControlPort ~/.lv2/ShortcircuitXT.lv2/shortci
 
 It prints 16 (one per macro). Samples must be on the pi-Stomp at the same path as when the patch was
 saved.
+
+Instruments for the panel's instrument browser live on the pi-Stomp in
+`~/.local/share/shortcircuit-xt/instruments` (next to Surge's `~/.local/share/surge-xt`). Copy a
+folder of instruments there from the dev Pi:
+
+```bash
+JOBS=4 PISTOMP=pistomp@pistomp.local ./build_scxt.sh --deploy --instruments ~/instruments
+```
 
 With a package instead:
 

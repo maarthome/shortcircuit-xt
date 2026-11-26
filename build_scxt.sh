@@ -21,6 +21,10 @@
 #                      with the Zynthian widget, and restart Zynthian
 #   --deb              also make a .deb package in dist/
 #   --deb-only         only make the .deb from the last build (no build)
+#   --instruments DIR  copy the instruments (sfz, samples, subfolders) in DIR to the
+#                      pi-Stomp's ~/.local/share/shortcircuit-xt/instruments (with
+#                      --deploy; like Surge's ~/.local/share/surge-xt) or into the
+#                      .deb as /usr/share/shortcircuit-xt/instruments (with --deb)
 #   --with-clap        also build the plain CLAP (dist-linux-aarch64/Shortcircuit XT.clap)
 #   -h, --help         this help
 #
@@ -43,10 +47,11 @@ set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 ROOT="$PWD"
 
-usage() { sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; }
 
 DO_DEPLOY=0; DO_ZYNTHIAN=0; DO_DEB=0; DEB_ONLY=0; WITH_CLAP=0
 LV2_DIR="${LV2_DIR:-}"
+INSTRUMENTS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --deps)       SKIP_DEPS=0 ;;
@@ -56,6 +61,8 @@ while [ $# -gt 0 ]; do
         --deb)        DO_DEB=1 ;;
         --deb-only)   DO_DEB=1; DEB_ONLY=1 ;;
         --with-clap)  WITH_CLAP=1 ;;
+        --instruments) shift; INSTRUMENTS="${1:?--instruments needs a folder}" ;;
+        --instruments=*) INSTRUMENTS="${1#*=}" ;;
         --lv2-dir)    shift; LV2_DIR="${1:?--lv2-dir needs a folder}" ;;
         --lv2-dir=*)  LV2_DIR="${1#*=}" ;;
         -h|--help)    usage; exit 0 ;;
@@ -80,6 +87,9 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 if [ "$DO_DEPLOY" = "1" ] && [ -z "${PISTOMP:-}" ]; then
     die "--deploy needs the pi-Stomp address, e.g. PISTOMP=pistomp@pistomp.local ./build_scxt.sh --deploy"
+fi
+if [ -n "$INSTRUMENTS" ] && [ ! -d "$INSTRUMENTS" ]; then
+    die "--instruments: folder $INSTRUMENTS not found"
 fi
 if [ "$DO_DEB" = "1" ] && [ -n "$LV2_DIR" ] && [ "${LV2_DIR#/}" = "$LV2_DIR" ]; then
     die "--deb needs a full path for --lv2-dir (a package can't install into ~ or a relative folder)"
@@ -166,6 +176,11 @@ deploy_pistomp() {
     log "Installing on the pi-Stomp ($PISTOMP:$dest)"
     ssh "$PISTOMP" "mkdir -p '$dest' && rm -rf '$dest/$BUNDLE_NAME'"
     rsync -a --protect-args "$BUNDLE" "$PISTOMP:$dest/"
+    if [ -n "$INSTRUMENTS" ]; then
+        log "Copying instruments from $INSTRUMENTS to $PISTOMP:.local/share/shortcircuit-xt/instruments"
+        ssh "$PISTOMP" "mkdir -p .local/share/shortcircuit-xt/instruments"
+        rsync -a --protect-args "${INSTRUMENTS%/}/" "$PISTOMP:.local/share/shortcircuit-xt/instruments/"
+    fi
     log "Restarting mod-host and mod-ui on the pi-Stomp (may ask for its sudo password)"
     ssh -t "$PISTOMP" "sudo systemctl restart mod-host mod-ui"
 }
@@ -188,6 +203,10 @@ make_deb() {
     rm -rf "$pkg"
     mkdir -p "$pkg/DEBIAN" "$pkg$dest"
     cp -r "$BUNDLE" "$pkg$dest/"
+    if [ -n "$INSTRUMENTS" ]; then
+        mkdir -p "$pkg/usr/share/shortcircuit-xt/instruments"
+        cp -r "${INSTRUMENTS%/}/." "$pkg/usr/share/shortcircuit-xt/instruments/"
+    fi
     cat > "$pkg/DEBIAN/control" <<EOF
 Package: shortcircuit-xt-lv2
 Version: $version
