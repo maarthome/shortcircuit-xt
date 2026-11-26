@@ -122,6 +122,7 @@ enum ParamId : uint32_t
     P_MISC_EDIT,      // panel -> plugin: "<p|r|f>,<index>,<field>,<value>"
     P_MACRO_NAMES,    // plugin -> panel: the 16 macro names joined with '~'
     P_MACRO_EDIT,     // panel -> plugin: "<macro>,<name>"
+    P_PART_FILE,      // plugin -> panel: the .scp part 1 was loaded from or last saved to ("" = none)
 
     P_NUM
 };
@@ -235,6 +236,7 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"misc_edit", "Misc and audio modulator edit", 0, 0, 0, true, false},
     {"macro_names", "Macro names", 0, 0, 0, false, false},
     {"macro_edit", "Macro rename", 0, 0, 0, true, false},
+    {"part_file", "Part 1 file", 0, 0, 0, false, false},
 };
 
 } // namespace scxt_lv2

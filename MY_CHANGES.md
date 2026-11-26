@@ -74,8 +74,10 @@ mod matrix, then group effects | routing, and the 16 macros as one strip along t
     flanger, phaser, dual delay, treemonster, nimbus, rotary speaker, floaty delay, bonsai),
     tempo sync and the effect's controls with Shortcircuit's value texts. The tab shows the
     effect's name.
-  - **Save .scp:** saves part 1 with all your edits as a Shortcircuit part in the Instruments
-    folder (or a full path you type), so it loads back exactly. Normally the file refers to the
+  - **Save .scp:** saves part 1 with all your edits as a Shortcircuit part, so it loads back
+    exactly. When part 1 came from a `.scp` (or was saved before) it shows that file and asks
+    "Save to <file>" or "Save as new…"; a new file goes in the Instruments folder (or a full
+    path you type). Normally the file refers to the
     samples where they are; tick "put the samples in the file too" for one file that can be
     moved anywhere.
 - **Routing** (as in Shortcircuit): S1 S2 S3 P1 P2 P3 BYP with a drawing of the 4 effect

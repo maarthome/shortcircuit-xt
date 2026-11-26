@@ -248,6 +248,9 @@ struct Bridge::Impl
     std::string sentMiscText;
     // macro names, copied on the audio thread with the group names
     std::string macroSnap, sentMacroNames;
+    // the .scp part 1 came from or was last saved to (also kept in browser.txt as part=)
+    std::string partFile, sentPartFile{"\x01"};
+    bool partFileChecked{false};
     // a part save in progress
     std::string savePath;
     std::chrono::steady_clock::time_point saveDeadline{};
@@ -980,6 +983,12 @@ struct Bridge::Impl
         saveExisted = fs::exists(pth);
         saveOldTime = saveExisted ? fs::last_write_time(pth, ec) : fs::file_time_type{};
         saveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        if (auto *pt = part0())
+        {
+            auto names = pt->names;
+            names.setName(stemOf(savePath));
+            send<cmsg::UpdatePartNames>(cmsg::partNamesPayload_t{(int16_t)0, names});
+        }
         send<cmsg::SavePart>(cmsg::savePartPayload_t{
             savePath, 0,
             (int)(monolith ? scxt::patch_io::SaveStyles::AS_MONOLITH : scxt::patch_io::SaveStyles::NO_SAMPLES)});
@@ -995,6 +1004,7 @@ struct Bridge::Impl
         if (done)
         {
             queueString(P_SAVED, "ok|" + savePath);
+            setPartFile(savePath);
             if (fs::path(savePath).parent_path() == fs::path(curDir))
                 sendListing(curDir);
             savePath.clear();
@@ -1149,6 +1159,8 @@ struct Bridge::Impl
                 curDir = line.substr(5);
             else if (line.rfind("folder=", 0) == 0)
                 favourites.push_back(line.substr(7));
+            else if (line.rfind("part=", 0) == 0)
+                partFile = line.substr(5);
         }
     }
 
@@ -1161,6 +1173,38 @@ struct Bridge::Impl
         f << "last=" << curDir << "\n";
         for (auto &d : favourites)
             f << "folder=" << d << "\n";
+        if (!partFile.empty())
+            f << "part=" << partFile << "\n";
+    }
+    static std::string stemOf(const std::string &p)
+    {
+        auto s = fs::path(p).stem().u8string();
+        return std::string(s.begin(), s.end());
+    }
+    void setPartFile(const std::string &p)
+    {
+        partFile = p;
+        saveConfig();
+    }
+    void sendPartFile()
+    {
+        if (!partFileChecked)
+        {
+            // after a restart: keep the remembered file only if it is there and part 1 has
+            // something loaded (and, when the part has a name, that it is this file's name)
+            partFileChecked = true;
+            auto *pt = part0();
+            std::string nm = pt ? std::string(pt->names.name) : std::string();
+            if (!partFile.empty() &&
+                (!pt || pt->getGroups().empty() || !fs::exists(partFile) ||
+                 (!nm.empty() && nm != scxt::engine::Part::PartNames::defaultName && nm != stemOf(partFile))))
+                partFile.clear();
+        }
+        if (partFile != sentPartFile)
+        {
+            sentPartFile = partFile;
+            queueString(P_PART_FILE, partFile);
+        }
     }
 
     void queueString(uint32_t p, const std::string &t)
@@ -1247,6 +1291,13 @@ struct Bridge::Impl
         {
             send<cmsg::AddSample>(path); // .scp loads into the selected part (1), .scm everything
             group = 0;
+            if (fs::path(path).extension() == ".scp")
+            {
+                partFile = path;
+                saveConfig();
+            }
+            else
+                setPartFile("");
         }
         else if (loadMode == 2 && !allGroups && part0Groups() > group)
         {
@@ -1277,6 +1328,7 @@ struct Bridge::Impl
         {
             send<cmsg::ClearPart>(0);
             group = 0;
+            setPartFile(""); // a new part: no file yet
             if (ownGroups)
                 send<cmsg::AddSample>(path);
             else
@@ -1629,6 +1681,9 @@ struct Bridge::Impl
         if (auto *pt = part0())
             readPfx(*pt, all);
         checkSave();
+        if (all)
+            sentPartFile = "\x01";
+        sendPartFile();
         // names: ask the audio thread after loads / structure changes, send when they changed
         if (namesReady.load())
         {

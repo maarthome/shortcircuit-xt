@@ -307,3 +307,5 @@
 .scxt .scx-fol-knobs { display: flex; gap: 4px; }
 .scxt .scx-fol-opts { display: flex; align-items: center; gap: 10px; }
 .scxt .scx-audio .scx-lfo-note { width: 100%; text-align: left; }
+.scxt .scx-dlg-cur { font-size: 13px; color: #f0d9b0; margin-bottom: 10px; word-break: break-all; }
+.scxt .scx-dlg-extra > .scx-dlg-chk { display: block; }

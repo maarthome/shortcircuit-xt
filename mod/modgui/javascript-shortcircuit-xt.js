@@ -961,7 +961,7 @@ function (event, funcs) {
         var card = el('div', 'scx-card scx-part', parent);
         var h4 = el('h4', '', card, '');
         el('span', '', h4, 'Part 1');
-        var save = el('button', 'scx-h4btn scx-save', h4, 'Save .scp');
+        var save = d.saveBtn = el('button', 'scx-h4btn scx-save', h4, 'Save .scp');
         save.title = 'Save part 1 with your edits as a Shortcircuit part (.scp)';
         save.addEventListener('mousedown', function (e) { e.stopPropagation(); });
         save.addEventListener('click', function (e) { e.stopPropagation(); askSave(d); });
@@ -1101,20 +1101,32 @@ function (event, funcs) {
         pfxTabName(d, s);
     }
     function askSave(d) {
-        var cur = d.groupNames && d.groupNames[0] ? d.groupNames[0].name : 'My part';
         var mono = false;
-        askText(d, 'Save part 1 as .scp (in the Instruments folder, or give a full path)', cur, [
-            ['Save', function (t) {
-                if (!t) return;
-                d.status.textContent = 'Saving ' + t + ' …';
-                funcs.patch_set(U('save_part'), 's', (mono ? '1,' : '0,') + t);
-            }],
-            ['Cancel', null]
-        ], function (box) {
+        function chk(box) {
             var lab = el('label', 'scx-dlg-chk', box);
             var cb = el('input', '', lab); cb.type = 'checkbox';
             el('span', '', lab, ' Put the samples in the file too (one big file, can be moved anywhere)');
             cb.addEventListener('change', function () { mono = cb.checked; });
+        }
+        function doSave(t) {
+            if (!t) return;
+            d.status.textContent = 'Saving ' + baseName(t) + ' …';
+            funcs.patch_set(U('save_part'), 's', (mono ? '1,' : '0,') + t);
+        }
+        function askNew() {
+            var cur = d.partFile ? baseName(d.partFile).replace(/\.scp$/i, '') :
+                (d.groupNames && d.groupNames[0] ? d.groupNames[0].name : 'My part');
+            askText(d, 'Save part 1 as a new .scp (in the Instruments folder, or give a full path)', cur,
+                [['Save', doSave], ['Cancel', null]], chk);
+        }
+        if (!d.partFile) { askNew(); return; }
+        askText(d, 'Save part 1', null, [
+            ['Save to ' + baseName(d.partFile), function () { doSave(d.partFile); }],
+            ['Save as new…', function () { setTimeout(askNew, 0); }],
+            ['Cancel', null]
+        ], function (box) {
+            el('div', 'scx-dlg-cur', box, 'Current file: ' + d.partFile);
+            chk(box);
         });
     }
     function gotSaved(d, text) {
@@ -1396,6 +1408,7 @@ function (event, funcs) {
         if (key === U('pfx_desc')) { var pd = joinChunk(d, 'pdesc', v); if (pd !== null) gotPfxDesc(d, pd); return; }
         if (key === U('pfx_values')) { var pv = joinChunk(d, 'pvalues', v); if (pv !== null) gotPfxValues(d, pv); return; }
         if (key === U('saved')) { gotSaved(d, v); return; }
+        if (key === U('part_file')) { d.partFile = String(v); if (d.saveBtn) d.saveBtn.title = d.partFile ? 'Save part 1 (current: ' + d.partFile + ')' : 'Save part 1 as a Shortcircuit part (.scp)'; return; }
         if (key === U('misc_text')) { gotMiscText(d, v); return; }
         if (key === U('macro_names')) { gotMacroNames(d, v); return; }
         if (!d.ctl) return;
