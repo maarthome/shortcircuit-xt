@@ -59,7 +59,9 @@ then group effects | routing. The parts:
   `..`, its sub-folders and the files of the chosen kind, then "Go to": ⌂ Instruments
   (`~/.local/share/ShortCircuit-XT`), ⌂ Home, ⌂ USB / media (`/media`), your ★ saved folders
   and ☆ Remember / ✖ Forget this folder. The list stays open while you open folders (also
-  `..`) or switch Instruments/Waves; choosing a file closes it and asks "Add to part 1" (new group) or "Replace part 1". The last folder and the saved
+  `..`) or switch Instruments/Waves; choosing a file closes it and asks "Add to part 1" (new group), "Replace group N" (only when one group is
+  selected: a wave replaces that group's samples and the group keeps its settings and takes the
+  wave's name; an instrument takes the group's place), "Replace part 1" or "Cancel". The last folder and the saved
   folders are kept in `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp.
   Below it, **Loaded in part 1**: each group with its name and its samples (zones); click
   one to edit that group.

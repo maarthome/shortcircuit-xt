@@ -255,6 +255,10 @@ function (event, funcs) {
         // Shortcircuit's own .scp (part) / .scm (multi) always replace: no "Add"
         var own = /\.sc[mp]$/i.test(path);
         d.addBtn.hidden = own;
+        // a single group is highlighted: it can be replaced too
+        var g = d.group, gn = d.groupNames && g >= 0 && d.groupNames[g];
+        d.repGrpBtn.hidden = own || !gn;
+        if (gn) d.repGrpBtn.textContent = 'Replace group ' + (g + 1) + (gn.name ? ': ' + gn.name : '');
         d.dlgTitle.textContent = /\.scm$/i.test(path) ? 'Load multi (replaces all parts)' : 'Load into part 1';
         d.modal.hidden = false;
     }
@@ -263,7 +267,8 @@ function (event, funcs) {
         if (d.pendingLoad === undefined) return;
         funcs.patch_set(U('load_mode'), 'f', mode);
         funcs.patch_set(U('load_path'), 's', d.pendingLoad);
-        d.status.textContent = (mode || /\.sc[mp]$/i.test(d.pendingLoad) ? 'Loading ' : 'Adding to part 1: ') + baseName(d.pendingLoad);
+        d.status.textContent = (mode === 2 ? 'Replacing group ' + (d.group + 1) + ' with ' :
+            mode || /\.sc[mp]$/i.test(d.pendingLoad) ? 'Loading ' : 'Adding to part 1: ') + baseName(d.pendingLoad);
         d.pendingLoad = undefined;
     }
 
@@ -971,6 +976,8 @@ function (event, funcs) {
         var btns = el('div', 'scx-dlg-btns', dlg);
         d.addBtn = el('button', '', btns, 'Add to part 1');
         d.addBtn.addEventListener('click', function (e) { e.stopPropagation(); doLoad(d, 0); });
+        d.repGrpBtn = el('button', 'scx-repgrp', btns, 'Replace group');
+        d.repGrpBtn.addEventListener('click', function (e) { e.stopPropagation(); doLoad(d, 2); });
         el('button', '', btns, 'Replace part 1').addEventListener('click', function (e) { e.stopPropagation(); doLoad(d, 1); });
         el('button', '', btns, 'Cancel').addEventListener('click', function (e) { e.stopPropagation(); d.modal.hidden = true; });
         d.modal.addEventListener('mousedown', function (e) { e.stopPropagation(); });

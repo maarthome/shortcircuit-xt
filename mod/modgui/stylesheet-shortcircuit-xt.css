@@ -67,10 +67,11 @@
 /* load dialog */
 .scxt .scx-modal { position: absolute; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .scxt .scx-modal[hidden] { display: none; }
-.scxt .scx-dialog { background: #262b31; border: 1px solid #f0a83a; border-radius: 8px; padding: 16px 18px; width: 420px; }
+.scxt .scx-dialog { background: #262b31; border: 1px solid #f0a83a; border-radius: 8px; padding: 16px 18px; width: 640px; }
 .scxt .scx-dlg-title { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #f0a83a; margin-bottom: 8px; }
 .scxt .scx-dlg-name { font-size: 16px; margin-bottom: 14px; word-break: break-all; }
-.scxt .scx-dlg-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.scxt .scx-dlg-btns { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.scxt .scx-dlg-btns .scx-repgrp { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scxt .scx-dlg-btns button { min-width: 110px; }
 .scxt .scx-status { font-size: 11px; color: #f0a83a; min-height: 14px; }
 

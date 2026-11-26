@@ -115,7 +115,7 @@ struct ParamDef
 inline const ParamDef paramDefs[P_NUM] = {
     {"group", "Group (-1 = all)", -1, 63, -1, true, true},
     {"group_count", "Group count", 0, 64, 0, false, true},
-    {"load_mode", "Load mode", 0, 1, 0, true, true},
+    {"load_mode", "Load mode (0 add, 1 replace part, 2 replace group)", 0, 2, 0, true, true},
     {"loaded", "Loaded", 0, 1e9f, 0, false, true},
 
     {"group_volume", "Volume", 0, 1.5849f, 1, true, false},

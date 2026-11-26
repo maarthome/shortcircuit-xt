@@ -830,6 +830,13 @@ struct Bridge::Impl
                                        shownDir + "|" + bodies[i]);
     }
 
+    int part0Groups()
+    {
+        auto &patch = engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        return part ? (int)part->getGroups().size() : 0;
+    }
+
     void load(const std::string &path)
     {
         if (!fs::is_regular_file(path))
@@ -844,6 +851,31 @@ struct Bridge::Impl
         {
             send<cmsg::AddSample>(path); // .scp loads into the selected part (1), .scm everything
             group = 0;
+        }
+        else if (loadMode == 2 && !allGroups && part0Groups() > group)
+        {
+            // replace the selected group: a wave goes into that group in place of its zones
+            // (the group keeps its settings, effects, envelopes and matrix); an instrument
+            // file takes the group's place with the groups it makes (added at the end)
+            if (ownGroups)
+            {
+                send<cmsg::DeleteGroup>(scxt::selection::SelectionManager::ZoneAddress(0, group, -1));
+                send<cmsg::AddSample>(path);
+                group = std::max(0, part0Groups() - 1);
+            }
+            else
+            {
+                auto &part = engine->getPatch()->getPart(0);
+                int nz = (int)part->getGroup(group)->getZones().size();
+                for (int z = nz - 1; z >= 0; --z)
+                    send<cmsg::DeleteZone>(scxt::selection::SelectionManager::ZoneAddress(0, group, z));
+                send<cmsg::AddSampleToGroup>(cmsg::addSampleToGroupPayload_t{path, 0, group});
+                // name the group after the wave it now plays
+                auto stem = fs::path(path).stem().u8string();
+                send<cmsg::RenameGroup>(cmsg::renameGroupZonePayload_t{
+                    scxt::selection::SelectionManager::ZoneAddress(0, group, -1),
+                    std::string(stem.begin(), stem.end())});
+            }
         }
         else if (loadMode == 1)
         {
@@ -866,7 +898,8 @@ struct Bridge::Impl
             if (!allGroups)
                 group = n;
         }
-        fprintf(stderr, "[scxt-lv2] %s %s\n", loadMode == 1 ? "replace part 1 with" : "add to part 1:",
+        fprintf(stderr, "[scxt-lv2] %s %s\n",
+                loadMode == 1 ? "replace part 1 with" : loadMode == 2 ? "replace the group with" : "add to part 1:",
                 path.c_str());
         // the load runs on Shortcircuit's own thread; read back when it is done
         holdReadback = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
