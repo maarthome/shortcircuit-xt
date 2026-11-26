@@ -610,7 +610,7 @@ function (event, funcs) {
             var z = g.zoneNames.slice(0, 3).join(', ') + (g.zones > 3 ? ' … (' + g.zones + ' zones)' : '');
             el('span', 'scx-ld-zones', row, z);
             row.title = g.zoneNames.join('\n');
-            row.classList.toggle('muted', g.muted && !g.soloed);
+            g.row = row;
             var tools = el('span', 'scx-ld-tools', row);
             function tool(label, cls, title, fn) {
                 var b = el('button', cls, tools, label); b.title = title;
@@ -618,8 +618,8 @@ function (event, funcs) {
                 b.addEventListener('click', function (e) { e.stopPropagation(); fn(b); });
                 return b;
             }
-            tool('M', g.muted ? 'on' : '', 'Mute', function (b) { var on = !b.classList.contains('on'); b.classList.toggle('on', on); groupCmd(d, 'm,' + i + ',' + (on ? 1 : 0)); });
-            tool('S', g.soloed ? 'on' : '', 'Solo', function (b) { var on = !b.classList.contains('on'); b.classList.toggle('on', on); groupCmd(d, 's,' + i + ',' + (on ? 1 : 0)); });
+            tool('M', g.muted ? 'on' : '', 'Mute', function (b) { var on = !b.classList.contains('on'); b.classList.toggle('on', on); g.muted = on; showSilenced(d); groupCmd(d, 'm,' + i + ',' + (on ? 1 : 0)); });
+            tool('S', g.soloed ? 'on' : '', 'Solo', function (b) { var on = !b.classList.contains('on'); b.classList.toggle('on', on); g.soloed = on; showSilenced(d); groupCmd(d, 's,' + i + ',' + (on ? 1 : 0)); });
             tool('\u270E', '', 'Rename', function () {
                 askText(d, 'Rename group ' + (i + 1), g.name, [
                     ['Rename', function (t) { t = t.replace(/[~|^]/g, ' ').trim(); if (t) groupCmd(d, 'r,' + i + ',' + t); }],
@@ -633,6 +633,14 @@ function (event, funcs) {
             row.addEventListener('mousedown', function (e) { e.stopPropagation(); });
             row.addEventListener('click', function (e) { e.stopPropagation(); d.group = i; showGroup(d); funcs.patch_set(U('group'), 'f', i); });
         });
+        showSilenced(d);
+    }
+
+    // strike through the groups you do not hear: while any group is soloed every group that is
+    // not soloed, otherwise the muted ones (a solo beats the group's own mute, as in Shortcircuit)
+    function showSilenced(d) {
+        var gs = d.groupNames || [], anySolo = gs.some(function (g) { return g.soloed; });
+        gs.forEach(function (g) { if (g.row) g.row.classList.toggle('muted', anySolo ? !g.soloed : g.muted); });
     }
 
     // ---- effects: the selected group's 4 processor slots ----

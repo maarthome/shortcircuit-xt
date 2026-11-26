@@ -65,7 +65,8 @@ mod matrix, then group effects | routing, and the 16 macros as one strip along t
   folders are kept in `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp.
   Below it, **Loaded in part 1**: each group with its name and its samples (zones); click
   one to edit that group. Each row has **M** (mute), **S** (solo), **✎** (rename) and **✕**
-  (delete, asks first).
+  (delete, asks first). Groups you do not hear are struck through: the muted ones, or while
+  a group is soloed every group that is not soloed.
 - **Part 1** (top right), with tabs:
   - **Settings:** volume, pan, tuning, transpose, MIDI channel (omni or 1–16), voices (no
     limit or 1–256), mute, and the **sends** to aux 1–4 (Shortcircuit's mixer page).
