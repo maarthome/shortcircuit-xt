@@ -35,6 +35,7 @@ namespace scxt_lv2
 namespace cmsg = scxt::messaging::client;
 using GroupOutputInfo = scxt::engine::Group::GroupOutputInfo;
 using AdsrStorage = scxt::modulation::modulators::AdsrStorage;
+using ModStorage = scxt::modulation::ModulatorStorage;
 using ProcStorage = scxt::dsp::processor::ProcessorStorage;
 using ProcDesc = scxt::dsp::processor::ProcessorControlDescription;
 static constexpr int numFx = scxt::processorsPerZoneAndGroup;
@@ -171,6 +172,10 @@ struct Bridge::Impl
     // copies them between process calls and sets descReady
     std::array<ProcDesc, numFx> descSnap;
     scxt::modulation::groupMatrixMetadata_t metaSnap;
+    // names of part 1's groups and zones, made on the audio thread on request
+    std::atomic<bool> namesRequest{false}, namesReady{false};
+    std::string namesSnap, sentNames;
+    float namesForLoaded{-1};
     std::atomic<int> descRequest{-1};
     std::atomic<bool> descReady{false};
 
@@ -186,8 +191,31 @@ struct Bridge::Impl
     std::array<GMRouting, numModRows> rowShadow{};
     std::array<std::chrono::steady_clock::time_point, numModRows> rowShadowTime{};
     int rowShadowGroup{-1};
-    int group{0};
+    int group{0};          // the group shown (with allGroups: the lead, group 1)
+    bool allGroups{true};  // edits go to every group of part 1 (the panel's "All groups")
     int loadMode{0};
+    int egIndex{-1}, lfoIndex{0}; // egIndex -1: the zones' amp EG
+    // the EG as last edited here (see rowShadow): a gate mode change sends the whole EG
+    AdsrStorage egShadow{};
+    int egShadowGroup{-1}, egShadowIndex{-1};
+    std::chrono::steady_clock::time_point egShadowTime{};
+    AdsrStorage &currentEgShadow()
+    {
+        auto now = std::chrono::steady_clock::now();
+        if (egShadowGroup != group || egShadowIndex != egIndex || now - egShadowTime > std::chrono::seconds(2))
+        {
+            auto &patch = engine->getPatch();
+            auto *part = patch ? patch->getPart(0).get() : nullptr;
+            (void)part;
+            auto *src = shownEg();
+            egShadow = src ? *src : AdsrStorage{};
+            egShadowGroup = group;
+            egShadowIndex = egIndex;
+        }
+        egShadowTime = now;
+        return egShadow;
+    }
+    std::string sentModsText, modsText;
     float loadedCounter{0};
     std::array<float, P_NUM> sent{};
     std::array<bool, P_NUM> sentValid{};
@@ -203,13 +231,74 @@ struct Bridge::Impl
         cmsg::clientSendToSerialization(M(payload), mc);
     }
 
+    // select every zone of the edited group(s): the zones' amp envelope edits go to all of them
+    void selectZones()
+    {
+        using SAC = scxt::selection::SelectionManager::SelectActionContents;
+        auto &patch = engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        if (!part)
+            return;
+        std::vector<SAC> acts;
+        int n = (int)part->getGroups().size();
+        for (int gi = 0; gi < n; ++gi)
+        {
+            if (!allGroups && gi != group)
+                continue;
+            int nz = (int)part->getGroup(gi)->getZones().size();
+            for (int zi = 0; zi < nz; ++zi)
+            {
+                bool first = acts.empty();
+                acts.push_back(SAC(0, gi, zi, true, first, first)); // forZone defaults to true
+            }
+        }
+        if (!acts.empty())
+            send<cmsg::ApplySelectActions>(acts);
+    }
+    bool hasZones()
+    {
+        auto &patch = engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        return part && group < (int)part->getGroups().size() && !part->getGroup(group)->getZones().empty();
+    }
+    const AdsrStorage *shownEg()
+    {
+        auto &patch = engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        if (!part || group >= (int)part->getGroups().size())
+            return nullptr;
+        auto &g = part->getGroup(group);
+        if (egIndex >= 0)
+            return &g->gegStorage[egIndex];
+        if (g->getZones().empty())
+            return nullptr;
+        return &g->getZone(0)->egStorage[0];
+    }
+
     void selectGroup()
     {
+        using SAC = scxt::selection::SelectionManager::SelectActionContents;
         send<cmsg::SelectPart>((int16_t)0);
-        scxt::selection::SelectionManager::SelectActionContents sac(0, group, -1, true, true, true);
-        sac.forZone = false;
-        send<cmsg::ApplySelectActions>(
-            std::vector<scxt::selection::SelectionManager::SelectActionContents>{sac});
+        std::vector<SAC> acts;
+        SAC lead(0, group, -1, true, true, true);
+        lead.forZone = false;
+        acts.push_back(lead);
+        if (allGroups)
+        {
+            // like a multi-selection in Shortcircuit's editor: group 1 leads, the rest join
+            auto &patch = engine->getPatch();
+            auto *part = patch ? patch->getPart(0).get() : nullptr;
+            int n = part ? (int)part->getGroups().size() : 0;
+            for (int i = 0; i < n; ++i)
+            {
+                if (i == group)
+                    continue;
+                SAC a(0, i, -1, true, false, false);
+                a.forZone = false;
+                acts.push_back(a);
+            }
+        }
+        send<cmsg::ApplySelectActions>(acts);
     }
 
     template <typename T> void groupField(T GroupOutputInfo::*member, T value)
@@ -235,13 +324,65 @@ struct Bridge::Impl
         send<cmsg::UpdateGroupOutputInt16TValue>(cmsg::detail::diffMsg_t<int16_t>{off, value});
     }
 
-    void egField(float AdsrStorage::*member, float value)
+    template <typename T> void egField(T AdsrStorage::*member, T value)
     {
         AdsrStorage dummy{};
         auto off = (ptrdiff_t)((uint8_t *)&(dummy.*member) - (uint8_t *)&dummy);
-        // (forZone = false: group EG; index 0 = EG1)
-        send<cmsg::UpdateZoneOrGroupEGFloatValue>(
-            cmsg::detail::indexedZoneOrGroupDiffMsg_t<float>{false, (size_t)0, off, value});
+        currentEgShadow().*member = value;
+        // group EG egIndex (0..4), or with egIndex -1 the zones' amp EG (egStorage[0])
+        bool forZone = egIndex < 0;
+        if (forZone)
+        {
+            if (!hasZones())
+                return;
+            selectZones();
+        }
+        size_t idx = forZone ? 0 : (size_t)egIndex;
+        if constexpr (std::is_same_v<T, bool>)
+            send<cmsg::UpdateZoneOrGroupEGBoolValue>(
+                cmsg::detail::indexedZoneOrGroupDiffMsg_t<bool>{forZone, idx, off, value});
+        else
+            send<cmsg::UpdateZoneOrGroupEGFloatValue>(
+                cmsg::detail::indexedZoneOrGroupDiffMsg_t<float>{forZone, idx, off, value});
+    }
+
+    // a field of the selected LFO: offset in ModulatorStorage, typed by T
+    template <typename T> void lfoAt(ptrdiff_t off, T value)
+    {
+        using namespace cmsg;
+        if constexpr (std::is_same_v<T, bool>)
+            send<UpdateZoneOrGroupModStorageBoolValue>(
+                detail::indexedZoneOrGroupDiffMsg_t<bool>{false, (size_t)lfoIndex, off, value});
+        else if constexpr (std::is_same_v<T, int16_t>)
+            send<UpdateZoneOrGroupModStorageInt16TValue>(
+                detail::indexedZoneOrGroupDiffMsg_t<int16_t>{false, (size_t)lfoIndex, off, value});
+        else
+            send<UpdateZoneOrGroupModStorageFloatValue>(
+                detail::indexedZoneOrGroupDiffMsg_t<float>{false, (size_t)lfoIndex, off, value});
+    }
+#define LFO_OFF(field) ((ptrdiff_t)offsetof(ModStorage, field))
+#define CLFO_OFF(field)                                                                            \
+    ((ptrdiff_t)offsetof(ModStorage, curveLfoStorage) +                                            \
+     (ptrdiff_t)offsetof(scxt::modulation::modulators::CurveLFOStorage, field))
+#define ELFO_OFF(field)                                                                            \
+    ((ptrdiff_t)offsetof(ModStorage, envLfoStorage) +                                              \
+     (ptrdiff_t)offsetof(scxt::modulation::modulators::EnvLFOStorage, field))
+
+    void setGateMode(int mode)
+    {
+        bool forZone = egIndex < 0;
+        if (forZone)
+        {
+            if (!hasZones())
+                return;
+            selectZones();
+        }
+        auto &st = currentEgShadow();
+        st.gateMode = mode == 2   ? AdsrStorage::GateMode::ONESHOT
+                      : mode == 1 ? AdsrStorage::GateMode::SEMI_GATED
+                                  : AdsrStorage::GateMode::GATED;
+        send<cmsg::UpdateFullAdsrStorageForGroupsOrZones>(
+            cmsg::fullAdsrStoragePayload_t{forZone, forZone ? 0 : egIndex, st});
     }
 
     // ---- effects (the group's 4 processor slots) -------------------------
@@ -722,7 +863,8 @@ struct Bridge::Impl
                 send<cmsg::AddSample>(path);
             else
                 send<cmsg::AddSampleToGroup>(cmsg::addSampleToGroupPayload_t{path, 0, n});
-            group = n;
+            if (!allGroups)
+                group = n;
         }
         fprintf(stderr, "[scxt-lv2] %s %s\n", loadMode == 1 ? "replace part 1 with" : "add to part 1:",
                 path.c_str());
@@ -787,12 +929,22 @@ struct Bridge::Impl
         switch (p)
         {
         case P_GROUP:
+            allGroups = iv < 0;
             group = std::max(0, iv);
             selectGroup();
             wantAll = true;
             return;
         case P_LOAD_MODE:
             loadMode = iv;
+            return;
+        case P_EG_INDEX:
+            // -1: the amp envelope (AEG) of the zones; 0..4: group EG 1..5
+            egIndex = std::clamp(iv, -1, (int)scxt::egsPerGroup - 1);
+            wantAll = true;
+            return;
+        case P_LFO_INDEX:
+            lfoIndex = std::clamp(iv, 0, (int)scxt::lfosPerGroup - 1);
+            wantAll = true;
             return;
         default:
             break;
@@ -828,6 +980,31 @@ struct Bridge::Impl
         case P_PROC_ROUTING: groupFieldAs16(&GroupOutputInfo::procRouting, (int16_t)iv); break;
         case P_ROUTE_TO: groupFieldAs16(&GroupOutputInfo::routeTo, (int16_t)iv); break;
         case P_OVERSAMPLE: groupFieldAs16(&GroupOutputInfo::oversample, (int16_t)iv); break;
+        case P_EG_ASH: egField(&AdsrStorage::aShape, v); break;
+        case P_EG_DSH: egField(&AdsrStorage::dShape, v); break;
+        case P_EG_RSH: egField(&AdsrStorage::rShape, v); break;
+        case P_EG_SYNC: egField(&AdsrStorage::isTemposync, iv > 0); break;
+        case P_EG_GATE_ANY: egField(&AdsrStorage::gateGroupEGOnAnyPlaying, iv > 0); break;
+        case P_EG_GATE: setGateMode(iv); break;
+        case P_LFO_SHAPE: lfoAt<int16_t>(LFO_OFF(modulatorShape), (int16_t)iv); break;
+        case P_LFO_TRIGGER: lfoAt<int16_t>(LFO_OFF(triggerMode), (int16_t)iv); break;
+        case P_LFO_RATE: lfoAt<float>(LFO_OFF(rate), v); break;
+        case P_LFO_PHASE: lfoAt<float>(LFO_OFF(start_phase), v); break;
+        case P_LFO_SYNC: lfoAt<bool>(LFO_OFF(temposync), iv > 0); break;
+        case P_LFO_DEFORM: lfoAt<float>(CLFO_OFF(deform), v); break;
+        case P_LFO_ANGLE: lfoAt<float>(CLFO_OFF(angle), v); break;
+        case P_LFO_UNI: lfoAt<bool>(CLFO_OFF(unipolar), iv > 0); break;
+        case P_LFO_USEENV: lfoAt<bool>(CLFO_OFF(useenv), iv > 0); break;
+        case P_LFO_DLY: lfoAt<float>(CLFO_OFF(delay), v); break;
+        case P_LFO_ATK: lfoAt<float>(CLFO_OFF(attack), v); break;
+        case P_LFO_REL: lfoAt<float>(CLFO_OFF(release), v); break;
+        case P_LFOE_DLY: lfoAt<float>(ELFO_OFF(delay), v); break;
+        case P_LFOE_A: lfoAt<float>(ELFO_OFF(attack), v); break;
+        case P_LFOE_H: lfoAt<float>(ELFO_OFF(hold), v); break;
+        case P_LFOE_D: lfoAt<float>(ELFO_OFF(decay), v); break;
+        case P_LFOE_S: lfoAt<float>(ELFO_OFF(sustain), v); break;
+        case P_LFOE_R: lfoAt<float>(ELFO_OFF(release), v); break;
+        case P_LFOE_LOOP: lfoAt<bool>(ELFO_OFF(loop), iv > 0); break;
         case P_EG_DLY: egField(&AdsrStorage::dly, v); break;
         case P_EG_A: egField(&AdsrStorage::a, v); break;
         case P_EG_H: egField(&AdsrStorage::h, v); break;
@@ -853,7 +1030,7 @@ struct Bridge::Impl
         vals[P_GROUP_COUNT] = (float)n;
         if (group >= n)
             group = n > 0 ? n - 1 : 0;
-        vals[P_GROUP] = (float)group;
+        vals[P_GROUP] = allGroups ? -1.f : (float)group;
         vals[P_LOAD_MODE] = (float)loadMode;
         vals[P_LOADED] = loadedCounter;
         if (n == 0)
@@ -878,7 +1055,64 @@ struct Bridge::Impl
         vals[P_PROC_ROUTING] = (float)o.procRouting;
         vals[P_ROUTE_TO] = (float)o.routeTo;
         vals[P_OVERSAMPLE] = (float)o.oversample;
-        const auto &eg = g->gegStorage[0];
+        vals[P_EG_INDEX] = (float)egIndex;
+        vals[P_LFO_INDEX] = (float)lfoIndex;
+        AdsrStorage egNone{};
+        const AdsrStorage *egp = shownEg();
+        const auto &eg = egp ? *egp : egNone;
+        vals[P_EG_ASH] = eg.aShape;
+        vals[P_EG_DSH] = eg.dShape;
+        vals[P_EG_RSH] = eg.rShape;
+        vals[P_EG_SYNC] = eg.isTemposync ? 1.f : 0.f;
+        vals[P_EG_GATE] = eg.gateMode == AdsrStorage::GateMode::ONESHOT      ? 2.f
+                          : eg.gateMode == AdsrStorage::GateMode::SEMI_GATED ? 1.f
+                                                                             : 0.f;
+        vals[P_EG_GATE_ANY] = eg.gateGroupEGOnAnyPlaying ? 1.f : 0.f;
+        const auto &ms = g->modulatorStorage[lfoIndex];
+        vals[P_LFO_SHAPE] = (float)ms.modulatorShape;
+        vals[P_LFO_TRIGGER] = (float)ms.triggerMode;
+        vals[P_LFO_RATE] = ms.rate;
+        vals[P_LFO_PHASE] = ms.start_phase;
+        vals[P_LFO_SYNC] = ms.temposync ? 1.f : 0.f;
+        vals[P_LFO_DEFORM] = ms.curveLfoStorage.deform;
+        vals[P_LFO_ANGLE] = ms.curveLfoStorage.angle;
+        vals[P_LFO_UNI] = ms.curveLfoStorage.unipolar ? 1.f : 0.f;
+        vals[P_LFO_USEENV] = ms.curveLfoStorage.useenv ? 1.f : 0.f;
+        vals[P_LFO_DLY] = ms.curveLfoStorage.delay;
+        vals[P_LFO_ATK] = ms.curveLfoStorage.attack;
+        vals[P_LFO_REL] = ms.curveLfoStorage.release;
+        const auto &el = ms.envLfoStorage;
+        vals[P_LFOE_DLY] = el.delay;
+        vals[P_LFOE_A] = el.attack;
+        vals[P_LFOE_H] = el.hold;
+        vals[P_LFOE_D] = el.decay;
+        vals[P_LFOE_S] = el.sustain;
+        vals[P_LFOE_R] = el.release;
+        vals[P_LFOE_LOOP] = el.loop ? 1.f : 0.f;
+        // Shortcircuit's own value texts (tempo synced times show as note lengths)
+        {
+            using FS = sst::basic_blocks::params::ParamMetaData::FeatureState;
+            auto txt = [](const scxt::datamodel::pmd &m, float v, bool sync) {
+                return clean(m.valueToString(v, FS().withTemposync(sync)).value_or(num(v)));
+            };
+            AdsrStorage e = eg;
+            std::string t = "E|";
+            const float *ev[6] = {&e.dly, &e.a, &e.h, &e.d, &e.s, &e.r};
+            for (int i = 0; i < 6; ++i)
+                t += (i ? "~" : "") + txt(scxt::datamodel::describeValue(e, *ev[i]), *ev[i], e.isTemposync && i != 4);
+            ModStorage m = ms;
+            t += "|L|";
+            const float *lv[7] = {&m.rate, &m.start_phase, &m.curveLfoStorage.deform, &m.curveLfoStorage.angle,
+                                  &m.curveLfoStorage.delay, &m.curveLfoStorage.attack, &m.curveLfoStorage.release};
+            for (int i = 0; i < 7; ++i)
+                t += (i ? "~" : "") + txt(scxt::datamodel::describeValue(m, *lv[i]), *lv[i], m.temposync && (i == 0 || i >= 4));
+            t += "|V|";
+            const float *vv[6] = {&m.envLfoStorage.delay, &m.envLfoStorage.attack, &m.envLfoStorage.hold,
+                                  &m.envLfoStorage.decay, &m.envLfoStorage.sustain, &m.envLfoStorage.release};
+            for (int i = 0; i < 6; ++i)
+                t += (i ? "~" : "") + txt(scxt::datamodel::describeValue(m, *vv[i]), *vv[i], m.temposync && i != 4);
+            modsText = t;
+        }
         vals[P_EG_DLY] = eg.dly;
         vals[P_EG_A] = eg.a;
         vals[P_EG_H] = eg.h;
@@ -907,6 +1141,29 @@ struct Bridge::Impl
                 if (group < (int)part->getGroups().size())
                     if (auto &g = part->getGroup(group))
                         readFx(*g, all);
+        // names: ask the audio thread after loads / structure changes, send when they changed
+        if (namesReady.load())
+        {
+            std::string n = namesSnap;
+            namesReady = false;
+            if (all || n != sentNames)
+            {
+                sentNames = n;
+                sendChunked(P_NAMES, "N", n);
+            }
+        }
+        else if ((all || vals[P_LOADED] != namesForLoaded) && !namesRequest.load())
+        {
+            namesForLoaded = vals[P_LOADED];
+            if (all)
+                sentNames.clear();
+            namesRequest = true;
+        }
+        if (!modsText.empty() && (all || modsText != sentModsText))
+        {
+            sentModsText = modsText;
+            queueString(P_MODS_TEXT, modsText);
+        }
         for (uint32_t i = 0; i < P_FIRST_STRING; ++i)
         {
             if (all || !sentValid[i] || vals[i] != sent[i])
@@ -1028,6 +1285,32 @@ bool Bridge::popOut(uint32_t &param, float &value) { return impl->out.pop(param,
 
 void Bridge::audioTick()
 {
+    if (impl->namesRequest.load(std::memory_order_acquire) && !impl->namesReady.load(std::memory_order_acquire))
+    {
+        // (rare: after loads and structure changes)
+        std::string t;
+        auto &patch = impl->engine->getPatch();
+        auto *part = patch ? patch->getPart(0).get() : nullptr;
+        if (part)
+        {
+            bool firstG = true;
+            for (auto &g : part->getGroups())
+            {
+                t += (firstG ? "" : "~") + Impl::clean(g->getName()) + "^" + std::to_string(g->getZones().size());
+                firstG = false;
+                int k = 0;
+                for (auto &z : g->getZones())
+                {
+                    if (++k > 24)
+                        break; // enough to recognise it
+                    t += "^" + Impl::clean(z->getName());
+                }
+            }
+        }
+        impl->namesSnap = t;
+        impl->namesRequest.store(false, std::memory_order_release);
+        impl->namesReady.store(true, std::memory_order_release);
+    }
     auto g = impl->descRequest.load(std::memory_order_acquire);
     if (g < 0 || impl->descReady.load(std::memory_order_acquire))
         return;

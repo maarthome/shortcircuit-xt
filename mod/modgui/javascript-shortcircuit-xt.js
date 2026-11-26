@@ -47,6 +47,10 @@ function (event, funcs) {
     // ---- a control bound to a patch parameter (uri) or a port (symbol) ----
     function send(d, c, v) {
         c.local = Date.now();
+        if (c.uri && d.ctl) {
+            [d.ctl[c.uri]].concat(d.ctlMore[c.uri] || []).forEach(function (o) { if (o && o !== c && o.set) o.set(v); });
+            (d.hooks[c.uri] || []).forEach(function (fn) { fn(v); });
+        }
         if (c.sendFn) c.sendFn(v);
         else if (c.uri) funcs.patch_set(c.uri, 'f', v);
         else funcs.set_port_value(c.symbol, v);
@@ -263,6 +267,340 @@ function (event, funcs) {
         d.pendingLoad = undefined;
     }
 
+    // ---- several controls and hooks may follow one parameter ----
+    function bind(d, key, c) {
+        if (!d.ctl[key]) d.ctl[key] = c;
+        else (d.ctlMore[key] = d.ctlMore[key] || []).push(c);
+        return c;
+    }
+    function hook(d, key, fn) { (d.hooks[key] = d.hooks[key] || []).push(fn); }
+    function pset(d, key, v) { funcs.patch_set(U(key), 'f', v); setValue(d, U(key), v, true); }
+
+    // on/off button for a 0/1 parameter
+    function makeToggle(d, parent, spec) {
+        var c = spec;
+        c.el = el('button', 'scx-tgl ' + (spec.cls || ''), parent, spec.label);
+        if (spec.title) c.el.title = spec.title;
+        c.v = 0;
+        c.set = function (v) { c.v = v > 0.5 ? 1 : 0; c.el.classList.toggle('on', !!c.v); };
+        c.el.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        c.el.addEventListener('click', function (e) { e.stopPropagation(); c.set(1 - c.v); send(d, c, c.v); });
+        return c;
+    }
+
+    // a row of buttons, one per value (routing S1..BYP, LFO trigger modes, tabs)
+    function makeSegment(d, parent, spec) {
+        var c = spec;
+        c.el = el('div', 'scx-seg ' + (spec.cls || ''), parent);
+        c.btns = spec.options.map(function (o) {
+            var b = el('button', '', c.el, o[1]);
+            b.value = o[0];
+            if (o[2]) b.title = o[2];
+            b.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            b.addEventListener('click', function (e) { e.stopPropagation(); c.set(o[0]); send(d, c, o[0]); });
+            return b;
+        });
+        c.set = function (v) {
+            c.v = Math.round(v);
+            c.btns.forEach(function (b) { b.classList.toggle('on', +b.value === c.v); });
+            if (c.onSet) c.onSet(c.v);
+        };
+        c.set(spec.def || 0);
+        return c;
+    }
+
+    // horizontal bar 0..1 (velocity sensitivity)
+    function makeHBar(d, parent, spec) {
+        var c = spec;
+        c.el = el('div', 'scx-hbar', parent);
+        var fill = el('div', 'scx-hbar-fill', c.el);
+        c.v = spec.def || 0;
+        c.set = function (v) { c.v = Math.max(0, Math.min(1, v)); fill.style.width = (c.v * 100) + '%'; c.el.title = spec.label + ' ' + Math.round(c.v * 100) + '%'; };
+        function setFrom(e) {
+            var p = e.touches ? e.touches[0] : e, r = c.el.getBoundingClientRect();
+            c.set((p.clientX - r.left) / r.width); send(d, c, c.v);
+        }
+        function move(e) { setFrom(e); e.preventDefault(); }
+        function up() {
+            document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+            document.removeEventListener('touchmove', move); document.removeEventListener('touchend', up);
+        }
+        function down(e) {
+            setFrom(e); e.preventDefault(); e.stopPropagation();
+            document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+            document.addEventListener('touchmove', move, {passive: false}); document.addEventListener('touchend', up);
+        }
+        c.el.addEventListener('mousedown', down);
+        c.el.addEventListener('touchstart', down, {passive: false});
+        c.set(c.v);
+        return c;
+    }
+
+    // ---- routing: the 4 effect slots as Shortcircuit draws them ----
+    // stages left to right; each stage holds parallel lanes; a lane is slots in series
+    var ROUTES = [
+        ['S1', '1 > 2 > 3 > 4', [[[0, 1, 2, 3]]]],
+        ['S2', '(1|2) > (3|4)', [[[0], [1]], [[2], [3]]]],
+        ['S3', '1 > (2|3) > 4', [[[0]], [[1], [2]], [[3]]]],
+        ['P1', '1 | 2 | 3 | 4', [[[0], [1], [2], [3]]]],
+        ['P2', '(1>2) | (3>4)', [[[0, 1], [2, 3]]]],
+        ['P3', '(1|2|3) > 4', [[[0], [1], [2]], [[3]]]],
+        ['BYP', 'bypass all effects', [[[0, 1, 2, 3]]]]
+    ];
+
+    function drawRouting(d) {
+        if (!d.routeSvg) return;
+        var mode = d.routeMode || 0, r = ROUTES[mode] || ROUTES[0], stages = r[2];
+        var W = 330, H = 132, bw = 44, bh = 34, gap = 22, lane = 46;
+        var widths = stages.map(function (st) { return Math.max.apply(null, st.map(function (l) { return l.length; })) * (bw + gap) - gap; });
+        var inner = widths.reduce(function (a, b) { return a + b; }, 0), sgap = Math.min(40, (W - 20 - inner) / (2 * stages.length));
+        var x0all = (W - inner - 2 * sgap * stages.length) / 2;
+        var cy = H / 2, x = x0all, h = '', blocks = '';
+        var line = mode === 6 ? '#6d7580' : '#8a929c';
+        function curve(x0, y0, x1, y1) { var mx = (x0 + x1) / 2; return '<path d="M' + x0 + ' ' + y0 + ' C' + mx + ' ' + y0 + ' ' + mx + ' ' + y1 + ' ' + x1 + ' ' + y1 + '" stroke="' + line + '" stroke-width="2.5" fill="none"/>'; }
+        stages.forEach(function (st, si) {
+            var x0 = x, xs = x + sgap, n = st.length;
+            st.forEach(function (ln, li) {
+                var y = cy + (li - (n - 1) / 2) * lane, bx = xs;
+                h += curve(x0, cy, bx, y);
+                ln.forEach(function (slot, k) {
+                    var f = d.fx && d.fx[slot], used = f && f.type, on = f && f.active, mix = f && f.mixKnob ? f.mixKnob.v : 0;
+                    var cls = 'scx-rb' + (used ? '' : ' empty') + (used && !on ? ' off' : '') + (mode === 6 ? ' byp' : '');
+                    blocks += '<g class="' + cls + '"><rect x="' + bx + '" y="' + (y - bh / 2) + '" width="' + bw + '" height="' + bh + '" rx="5"/>' +
+                        '<text x="' + (bx + bw / 2 - 4) + '" y="' + (y + 5) + '">' + (slot + 1) + '</text>' +
+                        '<rect class="mixbg" x="' + (bx + bw - 9) + '" y="' + (y - bh / 2 + 3) + '" width="6" height="' + (bh - 6) + '" rx="1"/>' +
+                        (used ? '<rect class="mix" x="' + (bx + bw - 9) + '" y="' + (y + bh / 2 - 3 - (bh - 6) * mix) + '" width="6" height="' + ((bh - 6) * mix) + '" rx="1"/>' : '') + '</g>';
+                    if (k < ln.length - 1) h += '<line x1="' + (bx + bw) + '" y1="' + y + '" x2="' + (bx + bw + gap) + '" y2="' + y + '" stroke="' + line + '" stroke-width="2.5"/>';
+                    bx += bw + gap;
+                });
+                var xe = xs + widths[si] + sgap;
+                h += curve(bx - gap, y, xe, cy);
+            });
+            x = xs + widths[si] + sgap;
+        });
+        h += '<line x1="' + x + '" y1="' + cy + '" x2="' + W + '" y2="' + cy + '" stroke="' + line + '" stroke-width="2.5"/>';
+        h += '<line x1="0" y1="' + cy + '" x2="' + x0all + '" y2="' + cy + '" stroke="' + line + '" stroke-width="2.5"/>';
+        if (mode === 6) h += '<path d="M0 ' + 14 + ' H' + W + '" stroke="#f0a83a" stroke-width="2.5" fill="none"/>';
+        d.routeSvg.innerHTML = h + blocks;
+    }
+
+    function buildRouting(d, parent) {
+        var card = el('div', 'scx-card scx-routing-card', parent);
+        var h4 = el('h4', '', card, 'Routing');
+        var hq = makeSelect(d, h4, {uri: U('group_oversample'), label: 'HQ', min: 0, max: 2, def: 1, options: [[0, 'OFF'], [1, 'AUTO'], [2, 'ON']]});
+        hq.el.classList.add('scx-hq');
+        bind(d, hq.uri, hq);
+        var top = el('div', 'scx-rt-top', card);
+        var seg = makeSegment(d, top, {uri: U('group_proc_routing'), cls: 'scx-rt-seg', def: 0,
+            options: ROUTES.map(function (r, i) { return [i, r[0], r[1]]; })});
+        seg.onSet = function (v) { d.routeMode = v; drawRouting(d); };
+        bind(d, seg.uri, seg);
+        el('div', 'scx-rt-vel', top, 'Vel');
+        bind(d, U('group_vel_sens'), makeHBar(d, top, {uri: U('group_vel_sens'), label: 'Velocity sensitivity', def: 0.6}));
+        var body = el('div', 'scx-rt-body', card);
+        d.routeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        d.routeSvg.setAttribute('viewBox', '0 0 330 132');
+        d.routeSvg.setAttribute('class', 'scx-rt-svg');
+        body.appendChild(d.routeSvg);
+        var right = el('div', 'scx-rt-right', body);
+        var knobs = el('div', 'scx-rt-knobs', right);
+        bind(d, U('group_volume'), makeKnob(d, knobs, {uri: U('group_volume'), label: 'Volume', min: 0, max: 1.5849, def: 1, fmt: fmtDb}));
+        bind(d, U('group_pan'), makeKnob(d, knobs, {uri: U('group_pan'), label: 'Pan', min: -1, max: 1, def: 0, fmt: fmtPan}));
+        var out = makeSelect(d, right, {uri: U('group_route_to'), label: 'Output', min: -1, max: 20, def: -1,
+            options: [[-1, 'Part Output'], [0, 'Main']].concat(range(1, 16, function (i) { return 'Bus ' + i; }), range(17, 20, function (i) { return 'Aux ' + (i - 16); }))});
+        out.el.classList.add('scx-rt-out');
+        bind(d, out.uri, out);
+        drawRouting(d);
+    }
+
+    // ---- group EGs 1..5 ----
+    var EGKEYS = ['eg1_delay', 'eg1_attack', 'eg1_hold', 'eg1_decay', 'eg1_sustain', 'eg1_release'];
+    function buildEG(d, parent) {
+        var card = el('div', 'scx-card scx-eg', parent);
+        var h4 = el('h4', '', card, '');
+        d.egTitle = el('span', '', h4, 'Amp EG (zones)');
+        // AMP = the zones' amp envelope (what you hear); EG 1..5 = the group's envelopes, which
+        // only act through a mod matrix row
+        var tabs = makeSegment(d, card, {uri: U('eg_index'), cls: 'scx-tabs', def: -1,
+            options: [[-1, 'AMP', 'The amp envelope of every zone in the edited group(s)']].concat(
+                range(0, 4, function (i) { return 'EG ' + (i + 1); }).map(function (o) { return [o[0], o[1], 'Group EG: a modulation source, use it in the mod matrix']; }))});
+        tabs.onSet = function (v) {
+            d.egTitle.textContent = v < 0 ? 'Amp EG (zones)' : 'Group EG ' + (v + 1);
+            d.egHint.textContent = v < 0 ? '' : 'modulation source: route it in the mod matrix';
+            if (d.egGateAny) d.egGateAny.el.hidden = v < 0;
+        };
+        bind(d, tabs.uri, tabs);
+        d.egHint = el('span', 'scx-eg-hint', h4, '');
+        var opts = el('div', 'scx-eg-opts', card);
+        var gate = makeSelect(d, opts, {uri: U('eg_gate_mode'), label: 'Gate', min: 0, max: 2, def: 0, options: [[0, 'Gated (DAHDSR)'], [1, 'No sustain'], [2, 'Oneshot']]});
+        bind(d, gate.uri, gate);
+        hook(d, gate.uri, function (v) { if (d.egS) d.egS.lblEl.textContent = v >= 1 ? 'B' : 'S'; });
+        d.egGateAny = bind(d, U('eg_gate_any'), makeToggle(d, opts, {uri: U('eg_gate_any'), label: 'Gate on voice', title: 'Gate on voice sounding'}));
+        d.egGateAny.el.hidden = true; // group EGs only
+        bind(d, U('eg_temposync'), makeToggle(d, opts, {uri: U('eg_temposync'), label: '\u2669 Sync', title: 'Tempo sync the times'}));
+        var sl = el('div', 'scx-sliders', card);
+        var shapes = {1: 'eg_attack_shape', 3: 'eg_decay_shape', 5: 'eg_release_shape'};
+        d.egSliders = [];
+        EG.forEach(function (e, i) {
+            var col = el('div', 'scx-egcol', sl);
+            if (shapes[i]) {
+                var k = makeKnob(d, col, {uri: U(shapes[i]), label: '', min: -1, max: 1, def: 0, fmt: function () { return ''; }});
+                k.el.classList.add('scx-shape'); k.el.title = 'Shape';
+                bind(d, k.uri, k);
+            } else el('div', 'scx-shape-gap', col);
+            var spec = {uri: U(e[0]), label: e[1], min: 0, max: 1, def: e[2], fmt: e[3]};
+            var c = makeVSlider(d, col, spec);
+            c.lblEl = c.el.querySelector('.scx-lbl');
+            var fmt0 = spec.fmt;
+            c.fmt = function (v) { return (c.text && !(c.local && Date.now() - c.local < 400)) ? c.text : fmt0(v); };
+            bind(d, spec.uri, c);
+            d.egSliders.push(c);
+            if (i === 4) d.egS = c;
+        });
+    }
+
+    // ---- group LFOs 1..4 ----
+    var LFO_SHAPES = [[1, 'SINE'], [2, 'RAMP'], [3, 'TRI'], [4, 'SAW-RMP'], [5, 'SQR-TRI'], [6, 'NOISE'], [7, 'S&H'], [8, 'ENV'], [0, 'STEP']];
+    function lfoWave(shape, deform, phase, uni) {
+        // a rough picture of one shape (Shortcircuit's exact curve also bends with deform/angle)
+        var pts = [], n = 120, seed = 1;
+        function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647 * 2 - 1; }
+        var noise = [];
+        for (var k = 0; k < 9; k++) noise.push(rnd());
+        for (var i = 0; i <= n; i++) {
+            var t = i / n * 2 + phase, f = t - Math.floor(t), y;
+            switch (shape) {
+            case 2: y = 1 - 2 * f; break;
+            case 3: y = f < 0.5 ? 4 * f - 1 : 3 - 4 * f; break;
+            case 4: y = f < 0.5 ? 1 - 4 * f : 4 * f - 3; y = 0.5 * y + 0.5 * (1 - 2 * f); break;
+            case 5: y = f < 0.5 ? 1 : -1; break;
+            case 6: var p = i / n * 8, a = Math.floor(p), b = p - a; y = noise[a] + (noise[a + 1] - noise[a]) * (3 * b * b - 2 * b * b * b); break;
+            case 7: y = noise[Math.floor(i / n * 8)]; break;
+            case 8: y = i < n * 0.15 ? i / (n * 0.15) : i < n * 0.3 ? 1 - (i - n * 0.15) / (n * 0.15) * 0.4 : i < n * 0.75 ? 0.6 : 0.6 * (1 - (i - n * 0.75) / (n * 0.25)); y = y * 2 - 1; break;
+            case 0: y = [0.6, -0.2, 0.9, -0.7, 0.3, -0.5, 0.8, -0.1][Math.floor(i / n * 8) % 8]; break;
+            default: y = Math.sin(2 * Math.PI * f); if (deform) y = Math.sign(y) * Math.pow(Math.abs(y), Math.pow(2, -deform * 1.5));
+            }
+            if (uni && shape !== 8) y = (y + 1) / 2;
+            if (uni || shape === 8) y = y * 2 - 1;
+            pts.push(y);
+        }
+        return pts;
+    }
+    function drawLfo(d) {
+        if (!d.lfoSvg) return;
+        var v = d.lfoVals || {}, pts = lfoWave(v.shape === undefined ? 1 : v.shape, v.deform || 0, v.phase || 0, v.uni);
+        var W = 300, H = 90, path = '';
+        pts.forEach(function (y, i) { path += (i ? 'L' : 'M') + (i / (pts.length - 1) * W).toFixed(1) + ' ' + (H / 2 - y * (H / 2 - 4)).toFixed(1); });
+        d.lfoSvg.innerHTML = '<line x1="0" y1="' + H / 2 + '" x2="' + W + '" y2="' + H / 2 + '" stroke="#5a626c" stroke-width="1"/>' +
+            '<path d="' + path + ' L' + W + ' ' + H / 2 + ' L0 ' + H / 2 + ' Z" fill="rgba(61,143,224,.35)"/>' +
+            '<path d="' + path + '" stroke="#eef1f4" stroke-width="2" fill="none"/>';
+    }
+    function showLfoKind(d) {
+        var sh = d.lfoVals ? d.lfoVals.shape : 1, env = sh === 8, step = sh === 0;
+        d.lfoCurve.hidden = env;
+        d.lfoEnv.hidden = !env;
+        d.lfoUni.el.hidden = env;
+        d.lfoUseEnv.el.hidden = env || step;
+        d.lfoDar.hidden = env || step || !(d.lfoVals && d.lfoVals.useenv);
+        d.lfoStepNote.hidden = !step;
+        drawLfo(d);
+    }
+    function buildLFO(d, parent) {
+        var card = el('div', 'scx-card scx-lfo', parent);
+        var h4 = el('h4', '', card, '');
+        d.lfoTitle = el('span', '', h4, 'Group LFO 1');
+        bind(d, U('lfo_temposync'), makeToggle(d, h4, {uri: U('lfo_temposync'), label: '\u2669 Sync', title: 'Tempo sync the rate', cls: 'scx-h4btn'}));
+        var tabs = makeSegment(d, card, {uri: U('lfo_index'), cls: 'scx-tabs', def: 0, options: range(0, 3, function (i) { return 'GLFO ' + (i + 1); })});
+        tabs.onSet = function (v) { d.lfoTitle.textContent = 'Group LFO ' + (v + 1); };
+        bind(d, tabs.uri, tabs);
+        d.lfoVals = {shape: 1};
+        var body = el('div', 'scx-lfo-body', card);
+        var left = el('div', 'scx-lfo-left', body);
+        var shape = makeSelect(d, left, {uri: U('lfo_shape'), label: '', min: 0, max: 8, def: 1, options: LFO_SHAPES});
+        shape.el.classList.add('scx-lfo-shape');
+        bind(d, shape.uri, shape);
+        hook(d, shape.uri, function (v) { d.lfoVals.shape = Math.round(v); showLfoKind(d); });
+        var btns = el('div', 'scx-lfo-btns', left);
+        d.lfoUni = bind(d, U('lfo_unipolar'), makeToggle(d, btns, {uri: U('lfo_unipolar'), label: 'UNI', title: 'Unipolar'}));
+        hook(d, U('lfo_unipolar'), function (v) { d.lfoVals.uni = v > 0.5; drawLfo(d); });
+        d.lfoUseEnv = bind(d, U('lfo_useenv'), makeToggle(d, btns, {uri: U('lfo_useenv'), label: 'ENV', title: 'Delay / attack / release envelope'}));
+        hook(d, U('lfo_useenv'), function (v) { d.lfoVals.useenv = v > 0.5; showLfoKind(d); });
+        d.lfoSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        d.lfoSvg.setAttribute('viewBox', '0 0 300 90');
+        d.lfoSvg.setAttribute('preserveAspectRatio', 'none');
+        d.lfoSvg.setAttribute('class', 'scx-lfo-svg');
+        left.appendChild(d.lfoSvg);
+
+        var mid = el('div', 'scx-lfo-mid', body);
+        d.lfoCurve = el('div', 'scx-lfo-knobs', mid);
+        d.lfoTextCtl = [];
+        [['lfo_rate', 'Rate', -7, 9, 0], ['lfo_phase', 'Phase', 0, 1, 0], ['lfo_deform', 'Deform', -1, 1, 0], ['lfo_angle', 'Angle', -1, 1, 0]].forEach(function (k, i) {
+            var c = {uri: U(k[0]), label: k[1], min: k[2], max: k[3], def: k[4]};
+            c.fmt = fmtText(c);
+            bind(d, c.uri, makeKnob(d, d.lfoCurve, c));
+            d.lfoTextCtl[i] = c;
+            if (k[0] === 'lfo_deform') hook(d, c.uri, function (v) { d.lfoVals.deform = v; drawLfo(d); });
+            if (k[0] === 'lfo_phase') hook(d, c.uri, function (v) { d.lfoVals.phase = v; drawLfo(d); });
+        });
+        d.lfoStepNote = el('div', 'scx-lfo-note', mid, 'Step sequence: edit the steps in the Shortcircuit editor.');
+        d.lfoEnv = el('div', 'scx-sliders scx-lfo-env', mid);
+        [['lfoenv_delay', 'Dly', 0], ['lfoenv_attack', 'A', 0], ['lfoenv_hold', 'H', 0], ['lfoenv_decay', 'D', 0], ['lfoenv_sustain', 'S', 1], ['lfoenv_release', 'R', 1]].forEach(function (k, i) {
+            var c = {uri: U(k[0]), label: k[1], min: 0, max: 1, def: k[2], fmt: i === 4 ? fmtPct : fmtTime};
+            var f0 = c.fmt;
+            var s2 = makeVSlider(d, d.lfoEnv, c);
+            s2.fmt = function (v) { return (s2.text && !(s2.local && Date.now() - s2.local < 400)) ? s2.text : f0(v); };
+            bind(d, c.uri, s2);
+            d.lfoTextCtl[7 + i] = s2;
+        });
+        bind(d, U('lfoenv_loop'), makeToggle(d, d.lfoEnv, {uri: U('lfoenv_loop'), label: 'LOOP', cls: 'scx-loop'}));
+
+        var right = el('div', 'scx-lfo-right', body);
+        var trig = makeSegment(d, right, {uri: U('lfo_trigger'), cls: 'scx-trig', def: 0,
+            options: [[0, 'KEYTRIG'], [1, 'SONGPOS'], [2, 'RANDOM'], [3, 'RELEASE'], [4, 'ONESHOT']]});
+        bind(d, trig.uri, trig);
+        el('div', 'scx-trig-lbl', right, 'Trigger');
+        d.lfoDar = el('div', 'scx-sliders scx-lfo-dar', body);
+        [['lfo_delay', 'D', 0], ['lfo_attack', 'A', 0], ['lfo_release', 'R', 1]].forEach(function (k, i) {
+            var c = {uri: U(k[0]), label: k[1], min: 0, max: 1, def: k[2], fmt: fmtTime};
+            var s3 = makeVSlider(d, d.lfoDar, c);
+            s3.fmt = function (v) { return (s3.text && !(s3.local && Date.now() - s3.local < 400)) ? s3.text : fmtTime(v); };
+            bind(d, c.uri, s3);
+            d.lfoTextCtl[4 + i] = s3;
+        });
+        showLfoKind(d);
+    }
+
+    // "E|<6 EG texts>|L|<rate phase deform angle d a r>|V|<6 env-LFO texts>"
+    function gotModsText(d, text) {
+        var p = String(text).split('|'), m = {};
+        for (var i = 0; i + 1 < p.length; i += 2) m[p[i]] = p[i + 1].split('~');
+        (m.E || []).forEach(function (t, i) { var c = d.egSliders && d.egSliders[i]; if (c) { c.text = t; c.show(); } });
+        (m.L || []).forEach(function (t, i) { var c = d.lfoTextCtl && d.lfoTextCtl[i]; if (c) { c.text = t; if (c.show) c.show(); } });
+        (m.V || []).forEach(function (t, i) { var c = d.lfoTextCtl && d.lfoTextCtl[7 + i]; if (c) { c.text = t; if (c.show) c.show(); } });
+    }
+
+    // ---- what is loaded: part 1's groups "<name>^<zones>^<zone>^<zone>...~..." ----
+    function gotNames(d, text) {
+        d.groupNames = String(text).split('~').filter(function (x) { return x.length; }).map(function (g) {
+            var f = g.split('^'); return {name: f[0], zones: +f[1] || 0, zoneNames: f.slice(2)};
+        });
+        showGroup(d);
+        var box = d.loadedBox;
+        if (!box) return;
+        box.innerHTML = '';
+        if (!d.groupNames.length) { el('div', 'scx-empty', box, 'Nothing loaded in part 1 yet.'); return; }
+        d.groupNames.forEach(function (g, i) {
+            var row = el('div', 'scx-ld-row' + (d.group < 0 || i === d.group ? ' sel' : ''), box);
+            el('span', 'scx-ld-num', row, '' + (i + 1));
+            el('span', 'scx-ld-name', row, g.name);
+            var z = g.zoneNames.slice(0, 3).join(', ') + (g.zones > 3 ? ' … (' + g.zones + ' zones)' : '');
+            el('span', 'scx-ld-zones', row, z);
+            row.title = g.zoneNames.join('\n');
+            row.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+            row.addEventListener('click', function (e) { e.stopPropagation(); d.group = i; showGroup(d); funcs.patch_set(U('group'), 'f', i); });
+        });
+    }
+
     // ---- effects: the selected group's 4 processor slots ----
     // The plugin sends text in pieces "<tag> <n>/<total>|<piece>" (fx_types, fx_desc,
     // fx_values); edits go back as fx_edit "<slot>,<t|a|m|l|f|i>,<index>,<value>".
@@ -387,6 +725,7 @@ function (event, funcs) {
         slot.ints.forEach(function (sel, i) {
             if (sel && !(sel.local && Date.now() - sel.local < 800) && iv[i] !== undefined) sel.value = '' + iv[i];
         });
+        drawRouting(d);
     }
 
     var ROUTING = [
@@ -488,7 +827,7 @@ function (event, funcs) {
         for (var i = 0; i < 18; i++) (function (i) {
             var r = {el: el('div', 'scx-mrow', list)};
             el('div', 'scx-mnum', r.el, '' + (i + 1));
-            r.on = el('button', 'scx-mon on', r.el, '\u23FB');
+            r.on = el('button', 'scx-mon on', r.el, 'ON');
             r.src = el('select', '', r.el); r.via = el('select', '', r.el);
             r.crv = el('select', '', r.el); r.tgt = el('select', '', r.el);
             [r.src, r.via, r.crv, r.tgt].forEach(function (x) { x.innerHTML = '<option value="">—</option>'; });
@@ -510,19 +849,14 @@ function (event, funcs) {
 
     function buildFx(d, root) {
         var fx = el('div', 'scx-card scx-fx', root);
-        var fh = el('h4', '', fx, 'Group effects');
-        var rt = el('div', 'scx-routing', fx);
-        ROUTING.forEach(function (g) {
-            var spec = {uri: U(g[0]), label: g[1], min: g[2], max: g[3], def: g[4], options: g[5]};
-            d.ctl[spec.uri] = makeSelect(d, rt, spec);
-        });
+        el('h4', '', fx, 'Group effects');
         var row = el('div', 'scx-fx-row', fx);
         d.fx = [];
         for (var s = 0; s < 4; s++) (function (s) {
             var card = el('div', 'scx-fx-slot empty', row);
             var head = el('div', 'scx-fx-head', card);
             el('span', 'scx-fx-num', head, 'FX' + (s + 1));
-            var onBtn = el('button', 'scx-fx-on on', head, '⏻');
+            var onBtn = el('button', 'scx-fx-on on', head, 'ON');
             onBtn.title = 'On / off';
             var typeSel = el('select', 'scx-fx-type', head);
             el('option', '', typeSel, '— none —').value = 0;
@@ -548,16 +882,20 @@ function (event, funcs) {
     function build(d) {
         var root = d.icon.find('.scx-root')[0];
         root.innerHTML = '';
-        d.ctl = {};
+        d.ctl = {}; d.ctlMore = {}; d.hooks = {};
 
         var top = el('div', 'scx-top', root);
         el('div', 'scx-title', top, 'SHORTCIRCUIT XT');
         d.status = el('div', 'scx-sub scx-status', top, '');
         var grp = el('div', 'scx-group scx-ctl', top);
-        var prev = el('button', '', grp, '◀'), gname = el('span', '', grp, 'Group 1'), next = el('button', '', grp, '▶');
+        var prev = el('button', '', grp, '◀'), gname = el('select', 'scx-gsel', grp), next = el('button', '', grp, '▶');
         d.groupLabel = gname;
+        d.group = -1; // All groups
+        gname.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        gname.addEventListener('change', function () { d.group = parseInt(gname.value, 10); showGroup(d); funcs.patch_set(U('group'), 'f', d.group); });
         function selGroup(delta) {
-            var n = Math.max(1, d.groupCount || 1), g = Math.max(0, Math.min(n - 1, (d.group || 0) + delta));
+            // order: All, 1, 2, ... n
+            var n = Math.max(1, d.groupCount || 1), g = Math.max(-1, Math.min(n - 1, (d.group === undefined ? -1 : d.group) + delta));
             d.group = g; showGroup(d); funcs.patch_set(U('group'), 'f', g);
         }
         prev.addEventListener('click', function (e) { e.stopPropagation(); selGroup(-1); });
@@ -570,8 +908,8 @@ function (event, funcs) {
         var row = el('div', 'scx-gs', gs);
         GROUP.forEach(function (g) {
             var spec = {uri: U(g[0]), label: g[1], min: g[3], max: g[4], def: g[5]};
-            if (g[2] === 'k') { spec.fmt = g[6]; d.ctl[spec.uri] = makeKnob(d, row, spec); }
-            else { spec.options = g[6]; d.ctl[spec.uri] = makeSelect(d, row, spec); }
+            if (g[2] === 'k') { spec.fmt = g[6]; bind(d, spec.uri, makeKnob(d, row, spec)); }
+            else { spec.options = g[6]; bind(d, spec.uri, makeSelect(d, row, spec)); }
         });
 
         // instrument browser + EG1
@@ -598,16 +936,18 @@ function (event, funcs) {
         document.addEventListener('mousedown', function (e) { if (!d.ddPop.hidden && !dd.contains(e.target)) openBrowser(d, false); }, true);
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !d.ddPop.hidden) openBrowser(d, false); });
         el('div', 'scx-hint', br, 'Click to open. Folders (and ..) open in the same list, which stays open; a file asks "Add" or "Replace".');
+        el('div', 'scx-ld-title', br, 'Loaded in part 1');
+        d.loadedBox = el('div', 'scx-loaded', br);
+        d.loadedBox.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        d.loadedBox.addEventListener('wheel', function (e) { e.stopPropagation(); });
+        el('div', 'scx-empty', d.loadedBox, 'Nothing loaded in part 1 yet.');
         d.entries = [];
         fillBrowser(d);
+        buildRouting(d, mid);
 
-        var eg = el('div', 'scx-card scx-eg', mid);
-        el('h4', '', eg, 'Group EG1 (amp)');
-        var sl = el('div', 'scx-sliders', eg);
-        EG.forEach(function (e) {
-            var spec = {uri: U(e[0]), label: e[1], min: 0, max: 1, def: e[2], fmt: e[3]};
-            d.ctl[spec.uri] = makeVSlider(d, sl, spec);
-        });
+        var mods = el('div', 'scx-mods', root);
+        buildEG(d, mods);
+        buildLFO(d, mods);
 
         buildFx(d, root);
         buildMatrix(d, root);
@@ -619,8 +959,8 @@ function (event, funcs) {
         for (var m = 0; m < 16; m++) {
             var sym = 'p' + m;
             if (d.ports && d.ports[sym] === undefined) continue;
-            d.ctl[sym] = makeKnob(d, grid, {symbol: sym, label: 'Macro ' + (m + 1), min: 0, max: 1, def: 0,
-                fmt: function (v) { return Math.round(v * 100) + '%'; }});
+            bind(d, sym, makeKnob(d, grid, {symbol: sym, label: 'Macro ' + (m + 1), min: 0, max: 1, def: 0,
+                fmt: function (v) { return Math.round(v * 100) + '%'; }}));
         }
 
         // load dialog
@@ -639,10 +979,24 @@ function (event, funcs) {
     function showGroup(d) {
         if (!d.groupLabel) return;
         var n = d.groupCount || 0;
-        d.groupLabel.textContent = n ? ('Group ' + ((d.group || 0) + 1) + ' / ' + n) : 'No groups';
+        var g = d.group === undefined ? -1 : d.group, sel = d.groupLabel, h = '';
+        function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+        if (!n) h = '<option value="-1">No groups</option>';
+        else {
+            h = '<option value="-1">All groups (' + n + ')</option>';
+            for (var i = 0; i < n; i++) {
+                var nm = d.groupNames && d.groupNames[i];
+                h += '<option value="' + i + '">Group ' + (i + 1) + (nm ? ': ' + esc(nm.name) : '') + '</option>';
+            }
+        }
+        if (sel.innerHTML !== h) sel.innerHTML = h;
+        sel.value = '' + (g < n ? g : -1);
+        var cur = g >= 0 && d.groupNames && d.groupNames[g];
+        sel.title = cur ? cur.zoneNames.join('\n') : 'Edits go to every group of part 1; the panel shows group 1';
+        if (d.loadedBox) [].forEach.call(d.loadedBox.querySelectorAll('.scx-ld-row'), function (r, i) { r.classList.toggle('sel', g < 0 || i === g); });
     }
 
-    function setValue(d, key, v) {
+    function setValue(d, key, v, fromPanel) {
         // key: parameter uri or port symbol
         if (key === U('group')) { d.group = Math.round(v); showGroup(d); return; }
         if (key === U('group_count')) { d.groupCount = Math.round(v); showGroup(d); return; }
@@ -654,10 +1008,15 @@ function (event, funcs) {
         if (key === U('fx_values')) { var fv = joinChunk(d, 'values', v); if (fv !== null) gotFxValues(d, fv); return; }
         if (key === U('folders')) { gotFolders(d, v); return; }
         if (key === U('loaded')) { if (d.loaded !== undefined && v !== d.loaded) d.status.textContent = ''; d.loaded = v; return; }
-        var c = d.ctl && d.ctl[key];
-        if (!c) return;
-        if (c.local && Date.now() - c.local < 800) return; // our own edit coming back
-        c.set(v);
+        if (key === U('names')) { var nm = joinChunk(d, 'names', v); if (nm !== null) gotNames(d, nm); return; }
+        if (key === U('mods_text')) { gotModsText(d, v); return; }
+        if (!d.ctl) return;
+        var list = [d.ctl[key]].concat(d.ctlMore[key] || []);
+        list.forEach(function (c) {
+            if (!c || (!fromPanel && c.local && Date.now() - c.local < 800)) return; // our own edit coming back
+            c.set(v);
+        });
+        (d.hooks[key] || []).forEach(function (fn) { fn(v); });
     }
 
     var d = event.data;

@@ -42,13 +42,43 @@ enum ParamId : uint32_t
     P_ROUTE_TO,       // output: -1 default (part), 0 main, 1..16 bus, 17..20 aux
     P_OVERSAMPLE,     // 0 off, 1 auto, 2 on
 
-    // group EG1 (amp envelope), engine::Group::gegStorage[0]; times 0..1
+    // group EGs 1..5 (engine::Group::gegStorage); P_EG_INDEX picks the one the panel edits;
+    // times 0..1
+    P_EG_INDEX,
     P_EG_DLY,
     P_EG_A,
     P_EG_H,
     P_EG_D,
     P_EG_S,
     P_EG_R,
+    P_EG_ASH,         // attack / decay / release shape -1..1
+    P_EG_DSH,
+    P_EG_RSH,
+    P_EG_SYNC,        // tempo sync 0/1
+    P_EG_GATE,        // 0 gated (DAHDSR), 1 no sustain, 2 oneshot
+    P_EG_GATE_ANY,    // gate on voice sounding 0/1
+
+    // group LFOs 1..4 (engine::Group::modulatorStorage); P_LFO_INDEX picks the one shown
+    P_LFO_INDEX,
+    P_LFO_SHAPE,      // ModulatorStorage::ModulatorShape (0 step .. 8 env)
+    P_LFO_TRIGGER,    // 0 keytrig, 1 songpos, 2 random, 3 release, 4 oneshot
+    P_LFO_RATE,       // -7..9 (2^x Hz)
+    P_LFO_PHASE,      // 0..1
+    P_LFO_DEFORM,     // -1..1
+    P_LFO_ANGLE,      // -1..1
+    P_LFO_SYNC,       // 0/1
+    P_LFO_UNI,        // unipolar 0/1
+    P_LFO_USEENV,     // curve LFO envelope (D A R) on 0/1
+    P_LFO_DLY,        // curve LFO envelope times 0..1
+    P_LFO_ATK,
+    P_LFO_REL,
+    P_LFOE_DLY,       // the ENV shape's DAHDSR
+    P_LFOE_A,
+    P_LFOE_H,
+    P_LFOE_D,
+    P_LFOE_S,
+    P_LFOE_R,
+    P_LFOE_LOOP,
 
     // text parameters (atom:String)
     P_BROWSE,         // panel -> plugin: list this folder (empty: the last one)
@@ -64,6 +94,8 @@ enum ParamId : uint32_t
     P_MOD_META,       // plugin -> panel: mod matrix sources, targets and curves, chunked
     P_MOD_ROWS,       // plugin -> panel: the 18 mod matrix rows, chunked
     P_MOD_EDIT,       // panel -> plugin: "<row>,<a|s|v|c|t|d>,<value>"
+    P_NAMES,          // plugin -> panel: part 1's groups "<name>^<zones>^<zone name>^<zone name>...~...", chunked
+    P_MODS_TEXT,      // plugin -> panel: value texts "E|<6 EG times>|L|<rate phase deform angle d a r>|V|<6 env-LFO>"
 
     P_NUM
 };
@@ -81,7 +113,7 @@ struct ParamDef
 };
 
 inline const ParamDef paramDefs[P_NUM] = {
-    {"group", "Group", 0, 63, 0, true, true},
+    {"group", "Group (-1 = all)", -1, 63, -1, true, true},
     {"group_count", "Group count", 0, 64, 0, false, true},
     {"load_mode", "Load mode", 0, 1, 0, true, true},
     {"loaded", "Loaded", 0, 1e9f, 0, false, true},
@@ -103,12 +135,40 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"group_proc_routing", "Effect routing", 0, 6, 0, true, true},
     {"group_route_to", "Output", -1, 20, -1, true, true},
     {"group_oversample", "Oversample", 0, 2, 1, true, true},
+    {"eg_index", "EG (-1 = zones amp EG)", -1, 4, -1, true, true},
     {"eg1_delay", "Dly", 0, 1, 0, true, false},
     {"eg1_attack", "A", 0, 1, 0, true, false},
     {"eg1_hold", "H", 0, 1, 0, true, false},
     {"eg1_decay", "D", 0, 1, 0, true, false},
     {"eg1_sustain", "S", 0, 1, 1, true, false},
     {"eg1_release", "R", 0, 1, 0.5f, true, false},
+    {"eg_attack_shape", "Attack shape", -1, 1, 0, true, false},
+    {"eg_decay_shape", "Decay shape", -1, 1, 0, true, false},
+    {"eg_release_shape", "Release shape", -1, 1, 0, true, false},
+    {"eg_temposync", "Tempo sync", 0, 1, 0, true, true},
+    {"eg_gate_mode", "Gate mode", 0, 2, 0, true, true},
+    {"eg_gate_any", "Gate on voice sounding", 0, 1, 0, true, true},
+
+    {"lfo_index", "LFO", 0, 3, 0, true, true},
+    {"lfo_shape", "LFO shape", 0, 8, 1, true, true},
+    {"lfo_trigger", "LFO trigger", 0, 4, 0, true, true},
+    {"lfo_rate", "LFO rate", -7, 9, 0, true, false},
+    {"lfo_phase", "LFO phase", 0, 1, 0, true, false},
+    {"lfo_deform", "LFO deform", -1, 1, 0, true, false},
+    {"lfo_angle", "LFO angle", -1, 1, 0, true, false},
+    {"lfo_temposync", "LFO tempo sync", 0, 1, 0, true, true},
+    {"lfo_unipolar", "LFO unipolar", 0, 1, 0, true, true},
+    {"lfo_useenv", "LFO envelope", 0, 1, 0, true, true},
+    {"lfo_delay", "LFO delay", 0, 1, 0, true, false},
+    {"lfo_attack", "LFO attack", 0, 1, 0, true, false},
+    {"lfo_release", "LFO release", 0, 1, 1, true, false},
+    {"lfoenv_delay", "LFO env delay", 0, 1, 0, true, false},
+    {"lfoenv_attack", "LFO env attack", 0, 1, 0, true, false},
+    {"lfoenv_hold", "LFO env hold", 0, 1, 0, true, false},
+    {"lfoenv_decay", "LFO env decay", 0, 1, 0, true, false},
+    {"lfoenv_sustain", "LFO env sustain", 0, 1, 1, true, false},
+    {"lfoenv_release", "LFO env release", 0, 1, 1, true, false},
+    {"lfoenv_loop", "LFO env loop", 0, 1, 0, true, true},
 
     {"browse", "Browse folder", 0, 0, 0, true, false},
     {"listing", "Folder listing", 0, 0, 0, false, false},
@@ -123,6 +183,8 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"mod_meta", "Mod matrix lists", 0, 0, 0, false, false},
     {"mod_rows", "Mod matrix rows", 0, 0, 0, false, false},
     {"mod_edit", "Mod matrix edit", 0, 0, 0, true, false},
+    {"names", "Loaded names", 0, 0, 0, false, false},
+    {"mods_text", "Modulator value texts", 0, 0, 0, false, false},
 };
 
 } // namespace scxt_lv2

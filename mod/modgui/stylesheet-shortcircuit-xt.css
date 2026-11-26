@@ -1,5 +1,5 @@
 /* Shortcircuit XT panel for MOD (maarthome/shortcircuit-xt, My_Changes) */
-.scxt { width: 1100px; height: 1180px; background: #1e2227; color: #d6dae0;
+.scxt { width: 1100px; height: 1506px; background: #1e2227; color: #d6dae0;
   font-family: "Inter", "Helvetica Neue", Arial, sans-serif; border-radius: 6px; position: relative; user-select: none; }
 .scxt .scx-root { position: absolute; inset: 0; padding: 8px 14px 10px; box-sizing: border-box; z-index: 25;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
@@ -35,7 +35,7 @@
 .scxt .scx-knob.dim .scx-lbl { color: #6d7580; }
 
 /* middle row: browser + EG1 */
-.scxt .scx-mid { display: flex; gap: 8px; flex: none; height: 190px; }
+.scxt .scx-mid { display: flex; gap: 8px; flex: none; height: 236px; }
 .scxt .scx-browser { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .scxt .scx-bar { display: flex; gap: 4px; margin-bottom: 4px; }
 .scxt .scx-folders { flex: 1; min-width: 0; height: 26px; background: #1d2126; color: #d6dae0; border: 1px solid #3f464f; border-radius: 4px; font-size: 12px; }
@@ -50,7 +50,7 @@
 .scxt .scx-item.file::before { content: "\25B8  "; color: #9aa4b2; }
 .scxt .scx-empty { padding: 10px; font-size: 12px; color: #8a929c; }
 
-.scxt .scx-eg { width: 380px; display: flex; flex-direction: column; }
+.scxt .scx-eg { width: 420px; display: flex; flex-direction: column; flex: none; }
 .scxt .scx-sliders { display: flex; justify-content: space-around; flex: 1; min-height: 0; }
 .scxt .scx-vs { display: flex; flex-direction: column; align-items: center; width: 52px; touch-action: none; cursor: ns-resize; }
 .scxt .scx-vs .scx-track { position: relative; width: 6px; flex: 1; background: #3a4048; border-radius: 3px; margin: 6px 0; }
@@ -134,3 +134,91 @@
 .scxt .scx-depth::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #3f464f; }
 .scxt .scx-depth-bar { position: absolute; top: 3px; bottom: 3px; background: #3d8fe0; border-radius: 2px; }
 .scxt .scx-depth-txt { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 22px; color: #d6dae0; }
+
+/* group selector */
+.scxt .scx-gsel { width: 270px; height: 30px; font-size: 13px; color: #f0a83a; background: #1d2126; }
+
+/* generic toggles, segments, tabs */
+.scxt .scx-tgl { height: 24px; font-size: 11px; padding: 0 8px; letter-spacing: .04em; }
+.scxt .scx-tgl.on { background: #f0a83a; color: #15181c; border-color: #f0a83a; }
+.scxt .scx-seg { display: flex; }
+.scxt .scx-seg button { height: 26px; border-radius: 0; margin-left: -1px; font-size: 12px; padding: 0 9px; background: #1d2126; }
+.scxt .scx-seg button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+.scxt .scx-seg button:last-child { border-radius: 0 4px 4px 0; }
+.scxt .scx-seg button.on { background: #f0a83a; color: #15181c; border-color: #f0a83a; position: relative; }
+.scxt .scx-tabs { margin: -2px 0 6px; }
+.scxt .scx-tabs button { height: 24px; font-size: 11px; letter-spacing: .05em; }
+.scxt .scx-h4btn { margin-left: auto; order: 2; height: 20px; font-size: 10px; }
+.scxt .scx-card h4 .scx-h4btn ~ * {}
+
+/* loaded names (browser card) */
+.scxt .scx-browser { min-width: 0; }
+.scxt .scx-ld-title { font-size: 10px; color: #8a929c; text-transform: uppercase; letter-spacing: .1em; margin: 8px 0 3px; }
+.scxt .scx-loaded { flex: 1; min-height: 0; overflow-y: auto; background: #1d2126; border: 1px solid #343a42; border-radius: 4px; }
+.scxt .scx-ld-row { display: flex; gap: 8px; align-items: baseline; padding: 3px 8px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.scxt .scx-ld-row:hover { background: #30363e; }
+.scxt .scx-ld-row.sel .scx-ld-name { color: #f0a83a; }
+.scxt .scx-ld-num { color: #6d7580; width: 16px; text-align: right; }
+.scxt .scx-ld-name { color: #d6dae0; }
+.scxt .scx-ld-zones { color: #8a929c; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+
+/* routing card, as in Shortcircuit */
+.scxt .scx-routing-card { width: 560px; flex: none; display: flex; flex-direction: column; }
+.scxt .scx-hq { flex-direction: row; gap: 6px; order: 3; color: #f0a83a; }
+.scxt .scx-hq select { height: 20px; font-size: 11px; padding: 0 2px; }
+.scxt .scx-routing-card h4::after { order: 2; }
+.scxt .scx-rt-top { display: flex; align-items: center; gap: 12px; }
+.scxt .scx-rt-vel { font-size: 13px; color: #c3c8cf; margin-left: 8px; }
+.scxt .scx-hbar { width: 90px; height: 14px; background: #1d2126; border: 1px solid #3f464f; border-radius: 2px; cursor: ew-resize; position: relative; touch-action: none; }
+.scxt .scx-hbar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #f0a83a; }
+.scxt .scx-rt-body { display: flex; align-items: center; gap: 6px; flex: 1; }
+.scxt .scx-rt-svg { width: 330px; height: 132px; flex: none; }
+.scxt .scx-rt-svg .scx-rb rect { fill: #2d3238; stroke: #8a929c; stroke-width: 1.5; }
+.scxt .scx-rt-svg .scx-rb text { fill: #c3c8cf; font-size: 14px; text-anchor: middle; font-family: inherit; }
+.scxt .scx-rt-svg .scx-rb .mixbg { fill: #1d2126; stroke: none; }
+.scxt .scx-rt-svg .scx-rb .mix { fill: #c58a2e; stroke: none; }
+.scxt .scx-rt-svg .scx-rb.empty rect, .scxt .scx-rt-svg .scx-rb.off rect, .scxt .scx-rt-svg .scx-rb.byp rect { stroke: #4a515a; }
+.scxt .scx-rt-svg .scx-rb.empty text, .scxt .scx-rt-svg .scx-rb.off text, .scxt .scx-rt-svg .scx-rb.byp text { fill: #6d7580; }
+.scxt .scx-rt-right { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.scxt .scx-rt-knobs { display: flex; gap: 6px; }
+.scxt .scx-rt-out select { width: 170px; height: 28px; }
+.scxt .scx-rt-out > div { display: none; }
+
+/* EG + LFO row */
+.scxt .scx-mods { display: flex; gap: 8px; flex: none; height: 300px; }
+.scxt .scx-eg-opts { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.scxt .scx-eg-opts .scx-sel { flex-direction: row; gap: 6px; }
+.scxt .scx-eg-opts .scx-sel > div { order: -1; }
+.scxt .scx-egcol { display: flex; flex-direction: column; align-items: center; height: 100%; }
+.scxt .scx-egcol .scx-vs { flex: 1; min-height: 0; }
+.scxt .scx-shape, .scxt .scx-shape-gap { height: 30px; flex: none; }
+.scxt .scx-knob.scx-shape { width: 30px; }
+.scxt .scx-knob.scx-shape svg { width: 26px; height: 26px; }
+.scxt .scx-knob.scx-shape .scx-lbl, .scxt .scx-knob.scx-shape .scx-val { display: none; }
+
+.scxt .scx-lfo { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.scxt .scx-lfo-body { display: flex; gap: 10px; flex: 1; min-height: 0; }
+.scxt .scx-lfo-left { width: 230px; display: flex; flex-direction: column; gap: 5px; flex: none; }
+.scxt .scx-lfo-shape select { width: 230px; height: 26px; color: #f0a83a; background: #1d2126; }
+.scxt .scx-lfo-shape > div:last-child { display: none; }
+.scxt .scx-lfo-btns { display: flex; gap: 5px; }
+.scxt .scx-lfo-btns .scx-tgl { flex: 1; }
+.scxt .scx-lfo-svg { width: 230px; height: 110px; background: #1d2126; border: 1px solid #343a42; border-radius: 3px; }
+.scxt .scx-lfo-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.scxt .scx-lfo-knobs { display: grid; grid-template-columns: repeat(2, 1fr); row-gap: 6px; justify-items: center; }
+.scxt .scx-lfo-note { font-size: 11px; color: #8a929c; padding: 6px; text-align: center; }
+.scxt .scx-lfo-env { height: 100%; align-items: stretch; }
+.scxt .scx-lfo-env .scx-vs { width: 34px; }
+.scxt .scx-loop { align-self: center; }
+.scxt .scx-lfo-right { width: 104px; display: flex; flex-direction: column; align-items: stretch; flex: none; }
+.scxt .scx-trig { flex-direction: column; background: #1d2126; border: 1px solid #3f464f; border-radius: 4px; padding: 3px; }
+.scxt .scx-trig button { border-radius: 3px !important; margin: 0 0 2px 0 !important; height: 24px; font-size: 11px; border: none; background: transparent; color: #c3c8cf; }
+.scxt .scx-trig button.on { background: #2f3a48; color: #5aa7ff; }
+.scxt .scx-trig-lbl { text-align: center; font-size: 12px; color: #c3c8cf; margin-top: 4px; }
+.scxt .scx-lfo-dar { width: 120px; flex: none; }
+.scxt .scx-lfo-dar .scx-vs { width: 34px; }
+.scxt .scx-hq > div { order: -1; font-size: 11px; letter-spacing: .08em; }
+.scxt .scx-lfo h4 .scx-h4btn { order: 3; }
+.scxt .scx-lfo h4::after, .scxt .scx-eg h4::after { order: 2; }
+.scxt [hidden] { display: none !important; }
+.scxt .scx-eg-hint { order: 4; font-size: 9px; color: #6d7580; letter-spacing: .04em; text-transform: none; font-weight: 400; }

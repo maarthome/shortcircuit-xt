@@ -45,7 +45,9 @@ The plugin has:
 
 The bundle includes a panel for MOD-UI, from top to bottom:
 
-- **Group selector** (◀ Group n / N ▶): the group of part 1 that the panel edits.
+- **Group selector** (◀ list ▶): **All groups** (the default: every edit goes to all groups of
+  part 1, like a multi-selection in Shortcircuit; the panel shows group 1's values) or one
+  group, listed with its name.
 - **Group settings:** volume, pan, tuning, pitch bend down/up, glide time and mode, velocity
   sensitivity, play mode (poly / piano / mono / legato), note priority, voices, MIDI channel,
   exclusive group.
@@ -57,14 +59,26 @@ The bundle includes a panel for MOD-UI, from top to bottom:
   and ☆ Remember / ✖ Forget this folder. The list stays open while you open folders (also
   `..`) or switch Instruments/Waves; choosing a file closes it and asks "Add to part 1" (new group) or "Replace part 1". The last folder and the saved
   folders are kept in `~/.config/ShortCircuit-XT/browser.txt` on the pi-Stomp.
-- **Group EG1 (amp envelope):** Dly, A, H, D, S, R.
+  Below it, **Loaded in part 1**: each group with its name and its samples (zones); click
+  one to edit that group.
+- **Routing** (as in Shortcircuit): S1 S2 S3 P1 P2 P3 BYP with a drawing of the 4 effect
+  blocks (their mix as a bar, grey when empty or off), Vel (velocity sensitivity), Volume,
+  Pan, output (Part Output, Main, Bus 1–16, Aux 1–4) and HQ (oversampling off / auto / on).
+- **Envelopes:** tabs **AMP** and **EG 1–5**. AMP is the amp envelope of every zone in the
+  edited group(s): that is the one you hear. EG 1–5 are the group's envelopes, which are
+  modulation sources: they only change the sound through a mod matrix row (e.g.
+  "Group EG 1 → Output › Amplitude"). Each has Dly A H D S R sliders, shape knobs above A, D
+  and R, gate mode (gated / no sustain / oneshot), tempo sync (times then show as note lengths)
+  and, for the group EGs, "gate on voice".
+- **Group LFO 1–4:** shape (sine, ramp, tri, saw-ramp, square-tri, noise, S&H, env, step) with
+  a picture, UNI, ENV (delay/attack/release envelope, sliders D A R), Rate, Phase, Deform,
+  Angle, tempo sync and the trigger (keytrig, songpos, random, release, oneshot). The ENV shape
+  shows its DAHDSR and loop instead; step sequences are edited in Shortcircuit's own editor.
 - **Group effects FX1–FX4:** per slot an on/off button and the effect type (Shortcircuit's own
   list, grouped: filters, delay, distortion, EQ, modulation, reverb, generators, ...). Below it
   that effect's own controls with their names, ranges and value texts from Shortcircuit
   (e.g. Cutoff "43.65 Hz"), Mix and Level knobs, and its choice settings (e.g. Passband) as
   drop-downs. Double-click a knob for its default.
-  Above the slots, the group's **routing**: effect routing (S1 `1>2>3>4`, S2, S3, P1 `1|2|3|4`,
-  P2, P3, bypass all), output (default/part, main, bus 1–16, aux 1–4) and oversampling.
 - **Group mod matrix:** the group's 18 rows, each with on/off, source, via, curve, target and
   depth (drag left/right, Shift for fine, double-click for 0). The lists are Shortcircuit's own
   (LFOs, EGs, MIDI, macros, random, ... and every effect parameter as target, shown as
@@ -83,7 +97,7 @@ The plugin lists the folders itself (the listing goes to the panel in pieces of 
 characters, because mod-host passes at most about 500 per message) and loads files by their full
 path, so new files on the pi-Stomp or a USB stick show up straight away.
 
-Still to come: EG2–5 and LFO1–4; selecting files with the pi-Stomp's
+Still to come: the MISC and AUDIO modulators; selecting files with the pi-Stomp's
 own display and buttons.
 
 ## Building on the dev Pi 5
