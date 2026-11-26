@@ -177,6 +177,7 @@ struct Bridge::Impl
     std::string namesSnap, sentNames;
     float namesForLoaded{-1};
     int namesTick{0};
+    bool namesForce{false}, macroForce{false};
     std::atomic<int> descRequest{-1};
     std::atomic<bool> descReady{false};
 
@@ -1634,13 +1635,15 @@ struct Bridge::Impl
             std::string n = namesSnap;
             std::string mn = macroSnap;
             namesReady = false;
-            if (all || mn != sentMacroNames)
+            if (all || macroForce || mn != sentMacroNames)
             {
                 sentMacroNames = mn;
+                macroForce = false;
                 queueString(P_MACRO_NAMES, mn);
             }
-            if (all || n != sentNames)
+            if (all || namesForce || n != sentNames)
             {
+                namesForce = false;
                 sentNames = n;
                 sendChunked(P_NAMES, "N", n);
             }
@@ -1649,7 +1652,7 @@ struct Bridge::Impl
         {
             namesForLoaded = vals[P_LOADED];
             if (all)
-                sentNames.clear();
+                namesForce = macroForce = true;
             namesRequest = true;
         }
         if (!modsText.empty() && (all || modsText != sentModsText))
