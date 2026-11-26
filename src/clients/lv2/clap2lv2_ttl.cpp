@@ -337,7 +337,7 @@ int main(int argc, char **argv)
         << "    lv2:minorVersion " << minorV << " ;\n"
         << "    lv2:microVersion " << microV << " ;\n"
         << "    mod:brand \"Surge Synth Team\" ;\n"
-        << "    mod:label \"SC XT\" ;\n"
+        << "    mod:label \"Shortcircuit XT\" ;\n"
         << "    rdfs:comment \"Shortcircuit XT sampler, built as LV2 from source (maarthome/shortcircuit-xt my_own)\" ;\n"
         << "    doap:maintainer [ foaf:name \"" << esc(vendor) << " (LV2 wrapper: maarthome)\" ] ;\n"
         << "    lv2:requiredFeature urid:map ;\n"
