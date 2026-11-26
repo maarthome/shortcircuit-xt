@@ -418,25 +418,19 @@ function (event, funcs) {
     function buildEG(d, parent) {
         var card = el('div', 'scx-card scx-eg', parent);
         var h4 = el('h4', '', card, '');
-        d.egTitle = el('span', '', h4, 'Amp EG (zones)');
-        // AMP = the zones' amp envelope (what you hear); EG 1..5 = the group's envelopes, which
-        // only act through a mod matrix row
-        var tabs = makeSegment(d, card, {uri: U('eg_index'), cls: 'scx-tabs', def: -1,
-            options: [[-1, 'AMP', 'The amp envelope of every zone in the edited group(s)']].concat(
-                range(0, 4, function (i) { return 'EG ' + (i + 1); }).map(function (o) { return [o[0], o[1], 'Group EG: a modulation source, use it in the mod matrix']; }))});
-        tabs.onSet = function (v) {
-            d.egTitle.textContent = v < 0 ? 'Amp EG (zones)' : 'Group EG ' + (v + 1);
-            d.egHint.textContent = v < 0 ? '' : 'modulation source: route it in the mod matrix';
-            if (d.egGateAny) d.egGateAny.el.hidden = v < 0;
-        };
+        d.egTitle = el('span', '', h4, 'Group EG 1');
+        // group EGs 1..5, as in Shortcircuit's group view: modulation sources, heard through
+        // a mod matrix row (e.g. GEG1 -> Output Amplitude)
+        var tabs = makeSegment(d, card, {uri: U('eg_index'), cls: 'scx-tabs', def: 0,
+            options: range(0, 4, function (i) { return 'EG ' + (i + 1); }).map(function (o) { return [o[0], o[1], 'Group EG ' + (o[0] + 1) + ': route it in the mod matrix to hear it']; })});
+        tabs.onSet = function (v) { d.egTitle.textContent = 'Group EG ' + (Math.max(0, v) + 1); };
         bind(d, tabs.uri, tabs);
-        d.egHint = el('span', 'scx-eg-hint', h4, '');
+        d.egHint = el('span', 'scx-eg-hint', h4, 'route it in the mod matrix');
         var opts = el('div', 'scx-eg-opts', card);
         var gate = makeSelect(d, opts, {uri: U('eg_gate_mode'), label: 'Gate', min: 0, max: 2, def: 0, options: [[0, 'Gated (DAHDSR)'], [1, 'No sustain'], [2, 'Oneshot']]});
         bind(d, gate.uri, gate);
         hook(d, gate.uri, function (v) { if (d.egS) d.egS.lblEl.textContent = v >= 1 ? 'B' : 'S'; });
         d.egGateAny = bind(d, U('eg_gate_any'), makeToggle(d, opts, {uri: U('eg_gate_any'), label: 'Gate on voice', title: 'Gate on voice sounding'}));
-        d.egGateAny.el.hidden = true; // group EGs only
         bind(d, U('eg_temposync'), makeToggle(d, opts, {uri: U('eg_temposync'), label: '\u2669 Sync', title: 'Tempo sync the times'}));
         var sl = el('div', 'scx-sliders', card);
         var shapes = {1: 'eg_attack_shape', 3: 'eg_decay_shape', 5: 'eg_release_shape'};
@@ -903,9 +897,9 @@ function (event, funcs) {
         [prev, next].forEach(function (b) { b.addEventListener('mousedown', function (e) { e.stopPropagation(); }); });
 
         // wide layout, three rows:
-        //   group settings | browser | routing
+        //   group settings | browser | macros
         //   envelopes | group LFO | mod matrix
-        //   group effects | macros
+        //   group effects | routing
         var row1 = el('div', 'scx-row scx-row1', root);
         var row2 = el('div', 'scx-row scx-mods', root);
         var row3 = el('div', 'scx-row scx-row3', root);
@@ -950,16 +944,16 @@ function (event, funcs) {
         el('div', 'scx-empty', d.loadedBox, 'Nothing loaded in part 1 yet.');
         d.entries = [];
         fillBrowser(d);
-        buildRouting(d, row1);
+        // macros (control ports p0..p15)
+        var mc = el('div', 'scx-card scx-macros', row1);
 
         buildEG(d, row2);
         buildLFO(d, row2);
         buildMatrix(d, row2);
 
         buildFx(d, row3);
+        buildRouting(d, row3);
 
-        // macros (control ports p0..p15)
-        var mc = el('div', 'scx-card scx-macros', row3);
         el('h4', '', mc, 'Macros');
         var grid = el('div', 'scx-grid', mc);
         for (var m = 0; m < 16; m++) {

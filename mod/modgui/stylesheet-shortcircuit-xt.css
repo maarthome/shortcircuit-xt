@@ -235,10 +235,11 @@
 .scxt .scx-matrix { width: 600px; flex: none; display: flex; flex-direction: column; }
 .scxt .scx-fx { flex: 1; min-width: 0; }
 .scxt .scx-fx-slot { min-height: 0; height: 236px; }
-.scxt .scx-macros { width: 600px; flex: none; display: flex; flex-direction: column; }
+.scxt .scx-macros { width: 560px; flex: none; display: flex; flex-direction: column; }
 .scxt .scx-macros .scx-grid { flex: 1; align-content: space-evenly; }
-.scxt .scx-macros .scx-knob { width: 72px; }
-.scxt .scx-macros .scx-knob .scx-lbl { width: 68px; max-width: 68px; font-size: 11px; }
+.scxt .scx-macros .scx-knob { width: 66px; }
+.scxt .scx-macros .scx-knob svg { width: 42px; height: 42px; }
+.scxt .scx-macros .scx-knob .scx-lbl { width: 62px; max-width: 62px; font-size: 11px; }
 .scxt .scx-mods .scx-eg { width: 400px; }
 .scxt .scx-mods .scx-matrix { width: 540px; }
 .scxt .scx-mods .scx-lfo-left { width: 210px; }

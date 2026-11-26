@@ -44,8 +44,8 @@ The plugin has:
 ### The MOD panel (pi-Stomp)
 
 The bundle includes a panel for MOD-UI. It is wide and low (1650 × 900) to suit a wide screen,
-with three rows: group settings | browser | routing, then envelopes | group LFO | mod matrix,
-then group effects | macros. The parts:
+with three rows: group settings | browser | macros, then group EG | group LFO | mod matrix,
+then group effects | routing. The parts:
 
 - **Group selector** (◀ list ▶): **All groups** (the default: every edit goes to all groups of
   part 1, like a multi-selection in Shortcircuit; the panel shows group 1's values) or one
@@ -66,12 +66,10 @@ then group effects | macros. The parts:
 - **Routing** (as in Shortcircuit): S1 S2 S3 P1 P2 P3 BYP with a drawing of the 4 effect
   blocks (their mix as a bar, grey when empty or off), Vel (velocity sensitivity), Volume,
   Pan, output (Part Output, Main, Bus 1–16, Aux 1–4) and HQ (oversampling off / auto / on).
-- **Envelopes:** tabs **AMP** and **EG 1–5**. AMP is the amp envelope of every zone in the
-  edited group(s): that is the one you hear. EG 1–5 are the group's envelopes, which are
-  modulation sources: they only change the sound through a mod matrix row (e.g.
-  "Group EG 1 → Output › Amplitude"). Each has Dly A H D S R sliders, shape knobs above A, D
-  and R, gate mode (gated / no sustain / oneshot), tempo sync (times then show as note lengths)
-  and, for the group EGs, "gate on voice".
+- **Group EG 1–5**, as in Shortcircuit's group view. They are modulation sources: they only
+  change the sound through a mod matrix row (e.g. "Group EG 1 → Output › Amplitude"). Each has
+  Dly A H D S R sliders, shape knobs above A, D and R, gate mode (gated / no sustain /
+  oneshot), tempo sync (times then show as note lengths) and "gate on voice".
 - **Group LFO 1–4:** shape (sine, ramp, tri, saw-ramp, square-tri, noise, S&H, env, step) with
   a picture, UNI, ENV (delay/attack/release envelope, sliders D A R), Rate, Phase, Deform,
   Angle, tempo sync and the trigger (keytrig, songpos, random, release, oneshot). The ENV shape

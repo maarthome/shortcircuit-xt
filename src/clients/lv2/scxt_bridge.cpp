@@ -194,7 +194,7 @@ struct Bridge::Impl
     int group{0};          // the group shown (with allGroups: the lead, group 1)
     bool allGroups{true};  // edits go to every group of part 1 (the panel's "All groups")
     int loadMode{0};
-    int egIndex{-1}, lfoIndex{0}; // egIndex -1: the zones' amp EG
+    int egIndex{0}, lfoIndex{0}; // group EG 1..5 (-1, the zones' amp EG, is no longer offered)
     // the EG as last edited here (see rowShadow): a gate mode change sends the whole EG
     AdsrStorage egShadow{};
     int egShadowGroup{-1}, egShadowIndex{-1};
@@ -938,8 +938,8 @@ struct Bridge::Impl
             loadMode = iv;
             return;
         case P_EG_INDEX:
-            // -1: the amp envelope (AEG) of the zones; 0..4: group EG 1..5
-            egIndex = std::clamp(iv, -1, (int)scxt::egsPerGroup - 1);
+            // 0..4: group EG 1..5 (as in Shortcircuit's group view)
+            egIndex = std::clamp(iv, 0, (int)scxt::egsPerGroup - 1);
             wantAll = true;
             return;
         case P_LFO_INDEX:

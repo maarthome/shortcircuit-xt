@@ -135,7 +135,7 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"group_proc_routing", "Effect routing", 0, 6, 0, true, true},
     {"group_route_to", "Output", -1, 20, -1, true, true},
     {"group_oversample", "Oversample", 0, 2, 1, true, true},
-    {"eg_index", "EG (-1 = zones amp EG)", -1, 4, -1, true, true},
+    {"eg_index", "Group EG (0..4 = EG 1..5)", 0, 4, 0, true, true},
     {"eg1_delay", "Dly", 0, 1, 0, true, false},
     {"eg1_attack", "A", 0, 1, 0, true, false},
     {"eg1_hold", "H", 0, 1, 0, true, false},
