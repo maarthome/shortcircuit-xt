@@ -300,6 +300,13 @@ pi-Stomp display and can be assigned to its knobs. **Click a name to rename it**
 with the part (`.scp`) and the pedalboard. Macros are per part; each group's matrix decides what
 they do.
 
+With the pi-Stomp software from `maarthome/pi-stomp` (`My_Changes`, 27 Nov or later) the pi-Stomp display
+shows these names too (parameter screen, knob and footswitch labels).
+
+**Procedure — assign a macro to a pi-Stomp knob or a MIDI controller:** in MOD-UI hover over the
+Shortcircuit XT pedal → gear (settings) → the address button next to the macro → choose a pi-Stomp
+knob/footswitch, or **MIDI** → *MIDI learn* and move the controller's knob.
+
 **Procedure — a pi-Stomp knob for the filter:** rename Macro 1 to "Cutoff"; matrix row: source
 **Macro › Macro 1**, target **P1 Fast SVF › Cutoff**; assign Macro 1 to a knob in MOD.
 
