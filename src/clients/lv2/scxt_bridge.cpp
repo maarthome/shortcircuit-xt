@@ -1409,6 +1409,11 @@ struct Bridge::Impl
         case P_MACRO_EDIT:
             applyMacroEdit(t);
             break;
+        case P_MACRO_NAMES:
+            // mod-ui restoring its cached copy: answer with the real names
+            macroForce = true;
+            namesRequest = true;
+            break;
         case P_FOLDER_REMOVE:
             favourites.erase(std::remove(favourites.begin(), favourites.end(), t), favourites.end());
             saveConfig();

@@ -120,7 +120,8 @@ enum ParamId : uint32_t
     P_SAVED,          // plugin -> panel: "ok|<path>" or "error|<text>"
     P_MISC_TEXT,      // plugin -> panel: phasors, randoms, envelope followers (see scxt_bridge.cpp)
     P_MISC_EDIT,      // panel -> plugin: "<p|r|f>,<index>,<field>,<value>"
-    P_MACRO_NAMES,    // plugin -> panel: the 16 macro names joined with '~'
+    P_MACRO_NAMES,    // plugin -> panel / pi-Stomp: the 16 macro names joined with '~'. Writable only so
+                      // mod-ui caches it and replays it to new clients; a write just re-sends the names
     P_MACRO_EDIT,     // panel -> plugin: "<macro>,<name>"
     P_PART_FILE,      // plugin -> panel: the .scp part 1 was loaded from or last saved to ("" = none)
 
@@ -234,7 +235,7 @@ inline const ParamDef paramDefs[P_NUM] = {
     {"saved", "Save result", 0, 0, 0, false, false},
     {"misc_text", "Misc and audio modulators", 0, 0, 0, false, false},
     {"misc_edit", "Misc and audio modulator edit", 0, 0, 0, true, false},
-    {"macro_names", "Macro names", 0, 0, 0, false, false},
+    {"macro_names", "Macro names", 0, 0, 0, true, false},
     {"macro_edit", "Macro rename", 0, 0, 0, true, false},
     {"part_file", "Part 1 file", 0, 0, 0, false, false},
 };
